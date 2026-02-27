@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "vite",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm test && npm run build"
   },
   "dependencies": {
     "hnswlib-wasm": "^0.8.2"
