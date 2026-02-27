@@ -104,7 +104,7 @@ export async function fit(
  * Levenberg-Marquardt curve fitting. Here we provide pre-fitted constants
  * for common parameter combinations plus an approximation for others.
  */
-function findAB(
+export function findAB(
   minDist: number,
   spread: number
 ): { a: number; b: number } {
@@ -141,7 +141,7 @@ function approximateA(minDist: number, spread: number, b: number): number {
  * Compute per-edge epoch sampling periods based on edge weights.
  * Higher-weight edges are sampled more frequently.
  */
-function computeEpochsPerSample(
+export function computeEpochsPerSample(
   weights: Float32Array,
   nEpochs: number
 ): Float32Array {
