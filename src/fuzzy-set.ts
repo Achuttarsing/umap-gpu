@@ -42,6 +42,51 @@ export function computeFuzzySimplicialSet(
 }
 
 /**
+ * Compute the fuzzy weight graph between new (query) points and training points.
+ * Used by UMAP.transform() to project unseen data into an existing embedding.
+ *
+ * Unlike computeFuzzySimplicialSet, this produces a bipartite graph
+ * (new points → training points) with no symmetrization.
+ *
+ * @param knnIndices   - For each new point, the indices of its training neighbors
+ * @param knnDistances - For each new point, the distances to those neighbors
+ * @param nNeighbors   - Number of neighbors used
+ * @returns FuzzyGraph where rows are new-point indices, cols are training-point indices
+ */
+export function computeTransformFuzzyWeights(
+  knnIndices: number[][],
+  knnDistances: number[][],
+  nNeighbors: number
+): FuzzyGraph {
+  const nNew = knnIndices.length;
+  const { sigmas, rhos } = smoothKnnDist(knnDistances, nNeighbors);
+
+  const rowList: number[] = [];
+  const colList: number[] = [];
+  const valList: number[] = [];
+
+  for (let i = 0; i < nNew; i++) {
+    for (let j = 0; j < knnIndices[i].length; j++) {
+      const d = knnDistances[i][j];
+      const val =
+        d <= rhos[i]
+          ? 1.0
+          : Math.exp(-((d - rhos[i]) / sigmas[i]));
+      rowList.push(i);
+      colList.push(knnIndices[i][j]);
+      valList.push(val);
+    }
+  }
+
+  return {
+    rows: new Float32Array(rowList),
+    cols: new Float32Array(colList),
+    vals: new Float32Array(valList),
+    nVertices: nNew,
+  };
+}
+
+/**
  * Compute smooth kNN distances using binary search for each point's
  * sigma value, matching the target perplexity log2(k).
  */
