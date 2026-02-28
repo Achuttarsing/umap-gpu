@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { cpuSgd } from '../fallback/cpu-sgd';
 import type { FuzzyGraph } from '../fuzzy-set';
+import { computeEps } from './test-helpers';
 
 function makeSimpleGraph(): FuzzyGraph {
   return {
@@ -44,13 +45,3 @@ describe('cpuSgd', () => {
     expect(changed).toBe(true);
   });
 });
-
-function computeEps(vals: Float32Array, nEpochs: number): Float32Array {
-  const max = Math.max(...vals);
-  const result = new Float32Array(vals.length);
-  for (let i = 0; i < vals.length; i++) {
-    const norm = vals[i] / max;
-    result[i] = norm > 0 ? nEpochs / norm : -1;
-  }
-  return result;
-}

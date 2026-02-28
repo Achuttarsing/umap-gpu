@@ -135,15 +135,15 @@ function symmetrize(
   rows: number[],
   cols: number[],
   vals: number[],
-  _n: number,
+  n: number,
   mixRatio: number
 ): { rows: Float32Array; cols: Float32Array; vals: Float32Array } {
-  // Accumulate forward and transpose entries
-  const map = new Map<string, number>();
+  // Use numeric composite key (r * n + c) to avoid string allocation and parsing.
+  // Safe for n up to ~94M since max key = (n-1)*n + (n-1) = n²-1 < 2^53.
+  const map = new Map<number, number>();
   const addEntry = (r: number, c: number, v: number) => {
-    const key = `${r},${c}`;
-    const existing = map.get(key) ?? 0;
-    map.set(key, existing + v);
+    const key = r * n + c;
+    map.set(key, (map.get(key) ?? 0) + v);
   };
 
   for (let i = 0; i < rows.length; i++) {
@@ -156,7 +156,8 @@ function symmetrize(
   const outVals: number[] = [];
 
   for (const [key, sum] of map.entries()) {
-    const [r, c] = key.split(',').map(Number);
+    const r = Math.floor(key / n);
+    const c = key % n;
     // Union: P + Q - P*Q (approximated from accumulated sum)
     outRows.push(r);
     outCols.push(c);
