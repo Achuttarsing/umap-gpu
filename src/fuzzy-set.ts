@@ -110,7 +110,7 @@ function smoothKnnDist(
 
     for (let iter = 0; iter < 64; iter++) {
       let psum = 0;
-      for (let j = 1; j < dists.length; j++) {
+      for (let j = 0; j < dists.length; j++) {
         psum += Math.exp(-Math.max(0, dists[j] - rhos[i]) / mid);
       }
       if (Math.abs(psum - target) < SMOOTH_K_TOLERANCE) break;
