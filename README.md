@@ -1,3 +1,5 @@
+# ⚠️ NOT READY YET | WORK IN PROGRESS ⚠️
+
 # umap-gpu
 
 UMAP dimensionality reduction with WebGPU-accelerated SGD and HNSW approximate nearest neighbors.
