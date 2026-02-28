@@ -115,4 +115,41 @@ describe('UMAP class', () => {
       expect(result).toBe(umap.embedding);
     });
   });
+
+  describe('progress callback', () => {
+    it('fit() calls onProgress with (epoch, nEpochs) for each epoch', async () => {
+      const nEpochs = 5;
+      const umap = new UMAP({ nNeighbors: 3, nEpochs });
+      const calls: Array<[number, number]> = [];
+
+      await umap.fit(makeVectors(10, 4), (epoch, total) => {
+        calls.push([epoch, total]);
+      });
+
+      expect(calls.length).toBe(nEpochs);
+      expect(calls[0]).toEqual([0, nEpochs]);
+      expect(calls[nEpochs - 1]).toEqual([nEpochs - 1, nEpochs]);
+      // epoch values must be strictly increasing
+      for (let i = 1; i < calls.length; i++) {
+        expect(calls[i][0]).toBe(calls[i - 1][0] + 1);
+      }
+    });
+
+    it('fit_transform() forwards onProgress to fit()', async () => {
+      const nEpochs = 4;
+      const umap = new UMAP({ nNeighbors: 3, nEpochs });
+      const calls: number[] = [];
+
+      await umap.fit_transform(makeVectors(8, 4), (epoch) => {
+        calls.push(epoch);
+      });
+
+      expect(calls.length).toBe(nEpochs);
+    });
+
+    it('fit() works normally without a callback', async () => {
+      const umap = new UMAP({ nNeighbors: 3, nEpochs: 5 });
+      await expect(umap.fit(makeVectors(10, 4))).resolves.toBe(umap);
+    });
+  });
 });
