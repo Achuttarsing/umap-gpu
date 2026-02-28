@@ -4,14 +4,38 @@
   "description": "UMAP with HNSW kNN and WebGPU-accelerated SGD",
   "type": "module",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "dist/umap-gpu.d.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/umap-gpu.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
   "files": [
     "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "umap",
+    "dimensionality-reduction",
+    "webgpu",
+    "hnsw",
+    "machine-learning",
+    "gpu"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Achuttarsing/umap-gpu"
   },
+  "bugs": {
+    "url": "https://github.com/Achuttarsing/umap-gpu/issues"
+  },
+  "homepage": "https://achuttarsing.github.io/umap-gpu",
   "scripts": {
     "build": "vite build && tsc",
     "dev": "vite",
