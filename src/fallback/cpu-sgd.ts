@@ -22,7 +22,8 @@ export function cpuSgd(
   nVertices: number,
   nComponents: number,
   nEpochs: number,
-  params: CPUSgdParams
+  params: CPUSgdParams,
+  onProgress?: (epoch: number, nEpochs: number) => void
 ): Float32Array {
   const { a, b, gamma = 1.0, negativeSampleRate = 5 } = params;
   const nEdges = graph.rows.length;
@@ -37,6 +38,7 @@ export function cpuSgd(
   }
 
   for (let epoch = 0; epoch < nEpochs; epoch++) {
+    onProgress?.(epoch, nEpochs);
     const alpha = 1.0 - epoch / nEpochs;
 
     for (let edgeIdx = 0; edgeIdx < nEdges; edgeIdx++) {
@@ -127,7 +129,8 @@ export function cpuSgdTransform(
   nTrain: number,
   nComponents: number,
   nEpochs: number,
-  params: CPUSgdParams
+  params: CPUSgdParams,
+  onProgress?: (epoch: number, nEpochs: number) => void
 ): Float32Array {
   const { a, b, gamma = 1.0, negativeSampleRate = 5 } = params;
   const nEdges = graph.rows.length;
@@ -142,6 +145,7 @@ export function cpuSgdTransform(
   }
 
   for (let epoch = 0; epoch < nEpochs; epoch++) {
+    onProgress?.(epoch, nEpochs);
     const alpha = 1.0 - epoch / nEpochs;
 
     for (let edgeIdx = 0; edgeIdx < nEdges; edgeIdx++) {

@@ -21,6 +21,15 @@ export interface UMAPOptions {
 }
 
 /**
+ * Called after each completed SGD epoch (or every 10 epochs on the GPU path,
+ * piggybacking on the existing GPU synchronisation point to avoid extra stalls).
+ *
+ * @param epoch   - Zero-based index of the epoch that just finished.
+ * @param nEpochs - Total number of epochs.
+ */
+export type ProgressCallback = (epoch: number, nEpochs: number) => void;
+
+/**
  * Fit UMAP to the given high-dimensional vectors and return a low-dimensional embedding.
  *
  * Pipeline:
@@ -30,7 +39,8 @@ export interface UMAPOptions {
  */
 export async function fit(
   vectors: number[][],
-  opts: UMAPOptions = {}
+  opts: UMAPOptions = {},
+  onProgress?: ProgressCallback
 ): Promise<Float32Array> {
   const {
     nComponents = 2,
@@ -84,14 +94,15 @@ export async function fit(
         n,
         nComponents,
         nEpochs,
-        { a, b, gamma: 1.0, negativeSampleRate: 5 }
+        { a, b, gamma: 1.0, negativeSampleRate: 5 },
+        onProgress
       );
     } catch (err) {
       console.warn('WebGPU SGD failed, falling back to CPU:', err);
-      result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b });
+      result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b }, onProgress);
     }
   } else {
-    result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b });
+    result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b }, onProgress);
   }
   console.timeEnd('sgd');
 
@@ -192,7 +203,7 @@ export class UMAP {
    * index so that transform() can project new points later.
    * Returns `this` for chaining.
    */
-  async fit(vectors: number[][]): Promise<this> {
+  async fit(vectors: number[][], onProgress?: ProgressCallback): Promise<this> {
     const n = vectors.length;
     const nEpochs = this._nEpochs ?? (n > 10_000 ? 200 : 500);
     const { M = 16, efConstruction = 200, efSearch = 50 } = this._hnswOpts;
@@ -234,18 +245,19 @@ export class UMAP {
           n,
           this._nComponents,
           nEpochs,
-          { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 }
+          { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 },
+          onProgress
         );
       } catch (err) {
         console.warn('WebGPU SGD failed, falling back to CPU:', err);
         this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
           a: this._a, b: this._b,
-        });
+        }, onProgress);
       }
     } else {
       this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
         a: this._a, b: this._b,
-      });
+      }, onProgress);
     }
     console.timeEnd('sgd');
 
@@ -326,8 +338,8 @@ export class UMAP {
    * `transform(vectors)` — but more efficient because the training embedding
    * is returned directly without a second optimization pass.
    */
-  async fit_transform(vectors: number[][]): Promise<Float32Array> {
-    await this.fit(vectors);
+  async fit_transform(vectors: number[][], onProgress?: ProgressCallback): Promise<Float32Array> {
+    await this.fit(vectors, onProgress);
     return this.embedding!;
   }
 }

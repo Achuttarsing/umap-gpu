@@ -52,7 +52,8 @@ export class GPUSgd {
     nVertices: number,
     nComponents: number,
     nEpochs: number,
-    params: SGDParams
+    params: SGDParams,
+    onProgress?: (epoch: number, nEpochs: number) => void
   ): Promise<Float32Array> {
     const { device } = this;
     const nEdges = head.length;
@@ -131,9 +132,11 @@ export class GPUSgd {
       pass.end();
       device.queue.submit([encoder.finish()]);
 
-      // Await GPU every 10 epochs to avoid TDR (GPU timeout)
+      // Await GPU every 10 epochs to avoid TDR (GPU timeout).
+      // The callback piggybacks on this existing sync point at no extra cost.
       if (epoch % 10 === 0) {
         await device.queue.onSubmittedWorkDone();
+        onProgress?.(epoch, nEpochs);
       }
     }
 
