@@ -14,6 +14,8 @@ function clip(v: number): number {
 /**
  * CPU fallback SGD optimizer for environments without WebGPU.
  * Mirrors the GPU shader logic: per-edge attraction + negative-sample repulsion.
+ *
+ * @param onEpoch - Optional callback invoked at each epoch with (epoch, nEpochs)
  */
 export function cpuSgd(
   embedding: Float32Array,
@@ -22,7 +24,8 @@ export function cpuSgd(
   nVertices: number,
   nComponents: number,
   nEpochs: number,
-  params: CPUSgdParams
+  params: CPUSgdParams,
+  onEpoch?: (epoch: number, nEpochs: number) => void
 ): Float32Array {
   const { a, b, gamma = 1.0, negativeSampleRate = 5 } = params;
   const nEdges = graph.rows.length;
@@ -37,6 +40,7 @@ export function cpuSgd(
   }
 
   for (let epoch = 0; epoch < nEpochs; epoch++) {
+    onEpoch?.(epoch, nEpochs);
     const alpha = 1.0 - epoch / nEpochs;
 
     for (let edgeIdx = 0; edgeIdx < nEdges; edgeIdx++) {
@@ -127,7 +131,8 @@ export function cpuSgdTransform(
   nTrain: number,
   nComponents: number,
   nEpochs: number,
-  params: CPUSgdParams
+  params: CPUSgdParams,
+  onEpoch?: (epoch: number, nEpochs: number) => void
 ): Float32Array {
   const { a, b, gamma = 1.0, negativeSampleRate = 5 } = params;
   const nEdges = graph.rows.length;
@@ -142,6 +147,7 @@ export function cpuSgdTransform(
   }
 
   for (let epoch = 0; epoch < nEpochs; epoch++) {
+    onEpoch?.(epoch, nEpochs);
     const alpha = 1.0 - epoch / nEpochs;
 
     for (let edgeIdx = 0; edgeIdx < nEdges; edgeIdx++) {

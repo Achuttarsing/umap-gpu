@@ -5,6 +5,18 @@ import { GPUSgd } from './gpu/sgd';
 import { cpuSgd, cpuSgdTransform } from './fallback/cpu-sgd';
 import { isWebGPUAvailable } from './gpu/device';
 
+export interface ProgressEvent {
+  /** Current stage of the pipeline */
+  stage: 'knn' | 'fuzzy-set' | 'sgd';
+  /** Current epoch (0-indexed). Only present during the 'sgd' stage. */
+  epoch?: number;
+  /** Total number of epochs. Only present during the 'sgd' stage. */
+  nEpochs?: number;
+}
+
+/** Called at each pipeline stage and at each SGD epoch. */
+export type ProgressCallback = (event: ProgressEvent) => void;
+
 export interface UMAPOptions {
   /** Embedding dimensionality (default: 2) */
   nComponents?: number;
@@ -18,6 +30,11 @@ export interface UMAPOptions {
   spread?: number;
   /** HNSW index parameters */
   hnsw?: { M?: number; efConstruction?: number; efSearch?: number };
+  /**
+   * Optional progress callback invoked at the start of each pipeline stage
+   * and at each SGD epoch. Useful for driving progress bars or logging.
+   */
+  onProgress?: ProgressCallback;
 }
 
 /**
@@ -38,10 +55,15 @@ export async function fit(
     minDist = 0.1,
     spread = 1.0,
     hnsw = {},
+    onProgress,
   } = opts;
   const nEpochs = opts.nEpochs ?? (vectors.length > 10_000 ? 200 : 500);
+  const onEpoch = onProgress
+    ? (epoch: number, nEpochs: number) => onProgress({ stage: 'sgd', epoch, nEpochs })
+    : undefined;
 
   // 1. HNSW kNN
+  onProgress?.({ stage: 'knn' });
   console.time('knn');
   const { indices, distances } = await computeKNN(vectors, nNeighbors, {
     M: hnsw.M ?? 16,
@@ -51,6 +73,7 @@ export async function fit(
   console.timeEnd('knn');
 
   // 2. Fuzzy simplicial set
+  onProgress?.({ stage: 'fuzzy-set' });
   console.time('fuzzy-set');
   const graph = computeFuzzySimplicialSet(indices, distances, nNeighbors);
   console.timeEnd('fuzzy-set');
@@ -84,14 +107,15 @@ export async function fit(
         n,
         nComponents,
         nEpochs,
-        { a, b, gamma: 1.0, negativeSampleRate: 5 }
+        { a, b, gamma: 1.0, negativeSampleRate: 5 },
+        onEpoch
       );
     } catch (err) {
       console.warn('WebGPU SGD failed, falling back to CPU:', err);
-      result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b });
+      result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b }, onEpoch);
     }
   } else {
-    result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b });
+    result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b }, onEpoch);
   }
   console.timeEnd('sgd');
 
@@ -191,13 +215,20 @@ export class UMAP {
    * Stores the resulting embedding in `this.embedding` and retains the HNSW
    * index so that transform() can project new points later.
    * Returns `this` for chaining.
+   *
+   * @param onProgress - Optional callback invoked at each pipeline stage and
+   *   each SGD epoch. Useful for driving progress bars or logging.
    */
-  async fit(vectors: number[][]): Promise<this> {
+  async fit(vectors: number[][], onProgress?: ProgressCallback): Promise<this> {
     const n = vectors.length;
     const nEpochs = this._nEpochs ?? (n > 10_000 ? 200 : 500);
     const { M = 16, efConstruction = 200, efSearch = 50 } = this._hnswOpts;
+    const onEpoch = onProgress
+      ? (epoch: number, nEpochs: number) => onProgress({ stage: 'sgd', epoch, nEpochs })
+      : undefined;
 
     // 1. Build HNSW index and compute k-NN (index is kept for transform)
+    onProgress?.({ stage: 'knn' });
     console.time('knn');
     const { knn, index } = await computeKNNWithIndex(vectors, this._nNeighbors, {
       M, efConstruction, efSearch,
@@ -207,6 +238,7 @@ export class UMAP {
     console.timeEnd('knn');
 
     // 2. Fuzzy simplicial set
+    onProgress?.({ stage: 'fuzzy-set' });
     console.time('fuzzy-set');
     const graph = computeFuzzySimplicialSet(knn.indices, knn.distances, this._nNeighbors);
     console.timeEnd('fuzzy-set');
@@ -234,18 +266,19 @@ export class UMAP {
           n,
           this._nComponents,
           nEpochs,
-          { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 }
+          { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 },
+          onEpoch
         );
       } catch (err) {
         console.warn('WebGPU SGD failed, falling back to CPU:', err);
         this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
           a: this._a, b: this._b,
-        });
+        }, onEpoch);
       }
     } else {
       this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
         a: this._a, b: this._b,
-      });
+      }, onEpoch);
     }
     console.timeEnd('sgd');
 
@@ -325,9 +358,11 @@ export class UMAP {
    * Convenience method equivalent to `fit(vectors)` followed by
    * `transform(vectors)` — but more efficient because the training embedding
    * is returned directly without a second optimization pass.
+   *
+   * @param onProgress - Optional callback forwarded to fit(). See fit() for details.
    */
-  async fit_transform(vectors: number[][]): Promise<Float32Array> {
-    await this.fit(vectors);
+  async fit_transform(vectors: number[][], onProgress?: ProgressCallback): Promise<Float32Array> {
+    await this.fit(vectors, onProgress);
     return this.embedding!;
   }
 }

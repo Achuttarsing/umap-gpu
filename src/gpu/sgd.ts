@@ -42,6 +42,7 @@ export class GPUSgd {
    * @param nComponents - Embedding dimensionality (typically 2)
    * @param nEpochs     - Total number of optimization epochs
    * @param params      - UMAP curve parameters and repulsion settings
+   * @param onEpoch     - Optional callback invoked at each epoch with (epoch, nEpochs)
    * @returns Optimized embedding as Float32Array
    */
   async optimize(
@@ -52,7 +53,8 @@ export class GPUSgd {
     nVertices: number,
     nComponents: number,
     nEpochs: number,
-    params: SGDParams
+    params: SGDParams,
+    onEpoch?: (epoch: number, nEpochs: number) => void
   ): Promise<Float32Array> {
     const { device } = this;
     const nEdges = head.length;
@@ -130,6 +132,8 @@ export class GPUSgd {
       pass.dispatchWorkgroups(Math.ceil(nEdges / 256));
       pass.end();
       device.queue.submit([encoder.finish()]);
+
+        onEpoch?.(epoch, nEpochs);
 
       // Await GPU every 10 epochs to avoid TDR (GPU timeout)
       if (epoch % 10 === 0) {
