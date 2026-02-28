@@ -7,6 +7,10 @@ export interface CPUSgdParams {
   negativeSampleRate?: number;
 }
 
+function clip(v: number): number {
+  return Math.max(-4.0, Math.min(4.0, v));
+}
+
 /**
  * CPU fallback SGD optimizer for environments without WebGPU.
  * Mirrors the GPU shader logic: per-edge attraction + negative-sample repulsion.
@@ -32,10 +36,6 @@ export function cpuSgd(
     epochOfNextNegativeSample[i] = epochsPerSample[i] / negativeSampleRate;
   }
 
-  function clip(v: number): number {
-    return Math.max(-4.0, Math.min(4.0, v));
-  }
-
   for (let epoch = 0; epoch < nEpochs; epoch++) {
     const alpha = 1.0 - epoch / nEpochs;
 
@@ -52,9 +52,11 @@ export function cpuSgd(
         distSq += diff * diff;
       }
 
+      // Cache pow result: pow(distSq, b-1) = pow(distSq, b) / distSq
+      const powB = Math.pow(distSq, b);
       const gradCoeffAttr =
-        (-2.0 * a * b * Math.pow(distSq, b - 1.0)) /
-        (a * Math.pow(distSq, b) + 1.0);
+        (-2.0 * a * b * (distSq > 0 ? powB / distSq : 0)) /
+        (a * powB + 1.0);
 
       for (let d = 0; d < nComponents; d++) {
         const diff = embedding[i * nComponents + d] - embedding[j * nComponents + d];
@@ -80,9 +82,10 @@ export function cpuSgd(
           negDistSq += diff * diff;
         }
 
+        const negPowB = Math.pow(negDistSq, b);
         const gradCoeffRep =
           (2.0 * gamma * b) /
-          ((0.001 + negDistSq) * (a * Math.pow(negDistSq, b) + 1.0));
+          ((0.001 + negDistSq) * (a * negPowB + 1.0));
 
         for (let d = 0; d < nComponents; d++) {
           const diff = embedding[i * nComponents + d] - embedding[k * nComponents + d];
@@ -138,10 +141,6 @@ export function cpuSgdTransform(
     epochOfNextNegativeSample[i] = epochsPerSample[i] / negativeSampleRate;
   }
 
-  function clip(v: number): number {
-    return Math.max(-4.0, Math.min(4.0, v));
-  }
-
   for (let epoch = 0; epoch < nEpochs; epoch++) {
     const alpha = 1.0 - epoch / nEpochs;
 
@@ -158,9 +157,11 @@ export function cpuSgdTransform(
         distSq += diff * diff;
       }
 
+      // Cache pow result: pow(distSq, b-1) = pow(distSq, b) / distSq
+      const powB = Math.pow(distSq, b);
       const gradCoeffAttr =
-        (-2.0 * a * b * Math.pow(distSq, b - 1.0)) /
-        (a * Math.pow(distSq, b) + 1.0);
+        (-2.0 * a * b * (distSq > 0 ? powB / distSq : 0)) /
+        (a * powB + 1.0);
 
       for (let d = 0; d < nComponents; d++) {
         const diff = embeddingNew[i * nComponents + d] - embeddingTrain[j * nComponents + d];
@@ -185,9 +186,10 @@ export function cpuSgdTransform(
           negDistSq += diff * diff;
         }
 
+        const negPowB = Math.pow(negDistSq, b);
         const gradCoeffRep =
           (2.0 * gamma * b) /
-          ((0.001 + negDistSq) * (a * Math.pow(negDistSq, b) + 1.0));
+          ((0.001 + negDistSq) * (a * negPowB + 1.0));
 
         for (let d = 0; d < nComponents; d++) {
           const diff = embeddingNew[i * nComponents + d] - embeddingTrain[k * nComponents + d];

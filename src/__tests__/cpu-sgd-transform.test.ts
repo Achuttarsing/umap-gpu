@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { cpuSgdTransform } from '../fallback/cpu-sgd';
 import type { FuzzyGraph } from '../fuzzy-set';
+import { computeEps } from './test-helpers';
 
 /** Bipartite graph: new point 0 → training point 0, new point 1 → training point 1 */
 function makeBipartiteGraph(): FuzzyGraph {
@@ -10,16 +11,6 @@ function makeBipartiteGraph(): FuzzyGraph {
     vals: new Float32Array([1.0, 1.0]),
     nVertices: 2,
   };
-}
-
-function computeEps(vals: Float32Array, nEpochs: number): Float32Array {
-  const max = Math.max(...vals);
-  const result = new Float32Array(vals.length);
-  for (let i = 0; i < vals.length; i++) {
-    const norm = vals[i] / max;
-    result[i] = norm > 0 ? nEpochs / norm : -1;
-  }
-  return result;
 }
 
 const params = { a: 1.9292, b: 0.7915 };
