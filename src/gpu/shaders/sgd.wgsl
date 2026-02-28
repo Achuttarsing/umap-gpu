@@ -69,6 +69,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let diff = embedding[i * nc + d] - embedding[j * nc + d];
     let grad = clip(grad_coeff_attr * diff, -4.0, 4.0);
     embedding[i * nc + d] += params.alpha * grad;
+    embedding[j * nc + d] -= params.alpha * grad;
   }
 
   epoch_of_next_sample[edge_idx] += epochs_per_sample[edge_idx];
