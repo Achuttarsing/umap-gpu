@@ -5,6 +5,7 @@
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM"],
     "declaration": true,
+    "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
@@ -13,5 +14,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["@webgpu/types"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/__tests__"]
 }
