@@ -6,15 +6,7 @@ Embed millions of high-dimensional vectors into 2D in seconds — not minutes.
 
 ## Why GPU?
 
-The bottleneck in UMAP is the SGD optimization loop: thousands of epochs, millions of edge updates per epoch. On CPU this is sequential. On GPU, all edges run in parallel across thousands of shader cores.
-
-| Dataset | CPU SGD | WebGPU SGD | Speedup |
-|---------|---------|------------|---------|
-| 5 000 points, 500 epochs | ~8 s | ~0.9 s | **~9×** |
-| 20 000 points, 200 epochs | ~40 s | ~3.5 s | **~11×** |
-| 60 000 points, 200 epochs | ~180 s | ~12 s | **~15×** |
-
-> Numbers measured on Chrome 124, M2 MacBook Pro. Your mileage will vary with GPU.
+The bottleneck in UMAP is the SGD optimization loop: thousands of epochs, millions of edge updates per epoch. On CPU this is sequential. On GPU, all edges run in parallel across thousands of shader cores — expect a significant speedup on large datasets, scaling with both the number of points and the number of epochs.
 
 The k-NN stage uses [hnswlib-wasm](https://github.com/yoshoku/hnswlib-wasm) (O(n log n)) so it stays fast regardless.
 A transparent CPU fallback guarantees identical output everywhere WebGPU isn't available.
