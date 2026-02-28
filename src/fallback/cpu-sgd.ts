@@ -64,6 +64,7 @@ export function cpuSgd(
         const diff = embedding[i * nComponents + d] - embedding[j * nComponents + d];
         const grad = clip(gradCoeffAttr * diff);
         embedding[i * nComponents + d] += alpha * grad;
+        embedding[j * nComponents + d] -= alpha * grad;
       }
 
       epochOfNextSample[edgeIdx] += epochsPerSample[edgeIdx];

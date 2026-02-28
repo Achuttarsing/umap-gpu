@@ -129,7 +129,9 @@ function smoothKnnDist(
 
 /**
  * Symmetrize the sparse graph using fuzzy set union:
- * W_sym = W + W^T - W * W^T
+ * W_sym = mixRatio * (P + Q - P*Q) + (1 - mixRatio) * (P*Q)
+ *
+ * where P = weight of directed edge (i→j) and Q = weight of (j→i).
  */
 function symmetrize(
   rows: number[],
@@ -138,34 +140,28 @@ function symmetrize(
   n: number,
   mixRatio: number
 ): { rows: Float32Array; cols: Float32Array; vals: Float32Array } {
-  // Use numeric composite key (r * n + c) to avoid string allocation and parsing.
-  // Safe for n up to ~94M since max key = (n-1)*n + (n-1) = n²-1 < 2^53.
-  const map = new Map<number, number>();
-  const addEntry = (r: number, c: number, v: number) => {
-    const key = r * n + c;
-    map.set(key, (map.get(key) ?? 0) + v);
-  };
-
+  // Step 1: store each directed edge weight individually.
+  // Use numeric composite key (r * n + c) — safe for n up to ~94M.
+  const forward = new Map<number, number>();
   for (let i = 0; i < rows.length; i++) {
-    addEntry(rows[i], cols[i], vals[i]);
-    addEntry(cols[i], rows[i], vals[i]);
+    forward.set(rows[i] * n + cols[i], vals[i]);
   }
 
+  // Step 2: for every directed edge, compute the true fuzzy union with its
+  // transpose and emit the symmetrized weight.
   const outRows: number[] = [];
   const outCols: number[] = [];
   const outVals: number[] = [];
 
-  for (const [key, sum] of map.entries()) {
+  for (const [key, P] of forward) {
     const r = Math.floor(key / n);
     const c = key % n;
-    // Union: P + Q - P*Q (approximated from accumulated sum)
+    const Q = forward.get(c * n + r) ?? 0;
+    const union = P + Q - P * Q;
+    const inter = P * Q;
     outRows.push(r);
     outCols.push(c);
-    outVals.push(
-      sum > 1
-        ? mixRatio * (2 - sum) + (1 - mixRatio) * (sum - 1)
-        : sum
-    );
+    outVals.push(mixRatio * union + (1 - mixRatio) * inter);
   }
 
   return {
