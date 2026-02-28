@@ -56,8 +56,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     dist_sq += diff * diff;
   }
 
-  let grad_coeff_attr = -2.0 * params.a * params.b * pow(dist_sq, params.b - 1.0)
-                        / (params.a * pow(dist_sq, params.b) + 1.0);
+  let pow_b = pow(dist_sq, params.b);
+  // Guard dist_sq == 0: b-1 is negative so pow(0, b-1) = +Inf.
+  // Mirror CPU: use pow_b / dist_sq only when dist_sq > 0, else 0.
+  let grad_coeff_attr = select(
+    -2.0 * params.a * params.b * (pow_b / dist_sq) / (params.a * pow_b + 1.0),
+    0.0,
+    dist_sq == 0.0
+  );
 
   for (var d = 0u; d < nc; d++) {
     let diff = embedding[i * nc + d] - embedding[j * nc + d];
