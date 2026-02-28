@@ -101,6 +101,18 @@ describe('UMAP class', () => {
         expect(umap.embedding![i]).toBe(trainEmbCopy[i]);
       }
     });
+
+    it('normalizes output to [0,1] per dimension when normalize=true', async () => {
+      const umap = new UMAP({ nNeighbors: 3, nEpochs: 5 });
+      await umap.fit(makeVectors(10, 4));
+      const result = await umap.transform(makeVectors(4, 4), true);
+      expect(result).toBeInstanceOf(Float32Array);
+      expect(result.length).toBe(4 * 2);
+      for (let i = 0; i < result.length; i++) {
+        expect(result[i]).toBeGreaterThanOrEqual(0);
+        expect(result[i]).toBeLessThanOrEqual(1);
+      }
+    });
   });
 
   describe('fit_transform()', () => {
@@ -113,6 +125,19 @@ describe('UMAP class', () => {
       expect(result.length).toBe(10 * 2);
       // fit_transform returns the same object stored in umap.embedding
       expect(result).toBe(umap.embedding);
+    });
+
+    it('normalizes output to [0,1] per dimension when normalize=true', async () => {
+      const umap = new UMAP({ nNeighbors: 3, nEpochs: 5 });
+      const result = await umap.fit_transform(makeVectors(10, 4), undefined, true);
+      expect(result).toBeInstanceOf(Float32Array);
+      expect(result.length).toBe(10 * 2);
+      for (let i = 0; i < result.length; i++) {
+        expect(result[i]).toBeGreaterThanOrEqual(0);
+        expect(result[i]).toBeLessThanOrEqual(1);
+      }
+      // this.embedding must remain the raw un-normalized embedding
+      expect(result).not.toBe(umap.embedding);
     });
   });
 

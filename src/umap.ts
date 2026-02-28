@@ -270,8 +270,12 @@ export class UMAP {
    *
    * The training embedding is kept fixed; only the new-point positions are
    * optimised. Returns a Float32Array of shape [vectors.length × nComponents].
+   *
+   * @param normalize - When `true`, min-max normalise each dimension of the
+   *   returned embedding to [0, 1].  The stored training embedding is never
+   *   mutated.  Defaults to `false`.
    */
-  async transform(vectors: number[][]): Promise<Float32Array> {
+  async transform(vectors: number[][], normalize = false): Promise<Float32Array> {
     if (!this._hnswIndex || !this.embedding) {
       throw new Error('UMAP.transform() must be called after fit()');
     }
@@ -320,7 +324,7 @@ export class UMAP {
     // 4. SGD: refine new-point positions (training embedding is fixed)
     const epochsPerSample = computeEpochsPerSample(graph.vals, transformEpochs);
 
-    return cpuSgdTransform(
+    const result = cpuSgdTransform(
       embeddingNew,
       this.embedding,
       graph,
@@ -331,17 +335,58 @@ export class UMAP {
       transformEpochs,
       { a: this._a, b: this._b }
     );
+    return normalize ? normalizeEmbedding(result, nNew, this._nComponents) : result;
   }
 
   /**
    * Convenience method equivalent to `fit(vectors)` followed by
    * `transform(vectors)` — but more efficient because the training embedding
    * is returned directly without a second optimization pass.
+   *
+   * @param normalize - When `true`, min-max normalise each dimension of the
+   *   returned embedding to [0, 1].  `this.embedding` is never mutated.
+   *   Defaults to `false`.
    */
-  async fit_transform(vectors: number[][], onProgress?: ProgressCallback): Promise<Float32Array> {
+  async fit_transform(
+    vectors: number[][],
+    onProgress?: ProgressCallback,
+    normalize = false
+  ): Promise<Float32Array> {
     await this.fit(vectors, onProgress);
-    return this.embedding!;
+    return normalize
+      ? normalizeEmbedding(this.embedding!, vectors.length, this._nComponents)
+      : this.embedding!;
   }
+}
+
+// ─── Normalization ────────────────────────────────────────────────────────────
+
+/**
+ * Min-max normalise a flat row-major embedding array so that every dimension
+ * independently falls in [0, 1].  Returns a new Float32Array; the input is
+ * never mutated.  Dimensions that are constant across all points are mapped to 0.
+ */
+function normalizeEmbedding(
+  embedding: Float32Array,
+  nPoints: number,
+  nComponents: number
+): Float32Array {
+  const result = new Float32Array(embedding.length);
+  for (let d = 0; d < nComponents; d++) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < nPoints; i++) {
+      const v = embedding[i * nComponents + d];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const range = max - min;
+    for (let i = 0; i < nPoints; i++) {
+      result[i * nComponents + d] =
+        range > 0 ? (embedding[i * nComponents + d] - min) / range : 0;
+    }
+  }
+  return result;
 }
 
 // ─── Per-edge epoch schedule ──────────────────────────────────────────────────
