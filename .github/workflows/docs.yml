@@ -31,7 +31,7 @@ jobs:
         run: npm run docs:generate
 
       - name: Copy type declarations to docs
-        run: cp dist/umap-gpu.d.ts docs/.vitepress/dist/umap-gpu.txt
+        run: cp dist/umap-gpu.d.ts docs/.vitepress/dist/api.txt
 
       - uses: actions/configure-pages@v5
 
