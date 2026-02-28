@@ -71,25 +71,44 @@ async fit(vectors: number[][]): Promise<this>
 
 Returns `this` for chaining.
 
-#### `transform(vectors)`
+#### `transform(vectors, normalize?)`
 
 Project new (unseen) `vectors` into the embedding space learned by `fit()`. The training embedding is kept fixed; only the new-point positions are optimised.
 
 ```ts
-async transform(vectors: number[][]): Promise<Float32Array>
+async transform(vectors: number[][], normalize?: boolean): Promise<Float32Array>
 ```
 
 Must be called after `fit()`. Throws if the model has not been fitted.
 
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `vectors` | `number[][]` | Array of high-dimensional input points to project. |
+| `normalize` | `boolean` | When `true`, min-max normalises each dimension of the returned embedding to [0, 1]. The stored training embedding is never mutated. Default: `false`. |
+
 Returns a `Float32Array` of shape `[vectors.length × nComponents]`.
 
-#### `fit_transform(vectors)`
+#### `fit_transform(vectors, onProgress?, normalize?)`
 
 Convenience method equivalent to calling `fit(vectors)` and returning the training embedding. More efficient than calling `fit()` then `transform()` on the same data.
 
 ```ts
-async fit_transform(vectors: number[][]): Promise<Float32Array>
+async fit_transform(
+  vectors: number[][],
+  onProgress?: ProgressCallback,
+  normalize?: boolean
+): Promise<Float32Array>
 ```
+
+**Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `vectors` | `number[][]` | Array of high-dimensional input points. All vectors must have the same dimensionality. |
+| `onProgress` | `ProgressCallback` | Optional callback invoked after each optimisation epoch with a `[0, 1]` progress value. |
+| `normalize` | `boolean` | When `true`, min-max normalises each dimension of the returned embedding to [0, 1]. The stored training embedding is never mutated. Default: `false`. |
 
 **Example**
 
@@ -153,6 +172,14 @@ interface UMAPOptions {
   };
 }
 ```
+
+### `ProgressCallback`
+
+```ts
+type ProgressCallback = (progress: number) => void;
+```
+
+A function called after each optimisation epoch. `progress` is a value in `[0, 1]`.
 
 ### `KNNResult`
 
