@@ -131,22 +131,92 @@ export function findAB(
     return { a: 1.5769, b: 0.8951 };
   }
 
-  // Approximation for other values via numerical fitting
-  // This follows the approach from the Python UMAP reference implementation
-  const b = approximateB(minDist, spread);
-  const a = approximateA(minDist, spread, b);
+  // For any other minDist/spread combination use Levenberg-Marquardt curve
+  // fitting, matching the Python reference (scipy.optimize.curve_fit).
+  return findABByFitting(minDist, spread);
+}
+
+/**
+ * Fit a, b by minimising the squared error between 1/(1 + a*x^(2b)) and the
+ * smooth-step target function defined by minDist and spread, using the
+ * Levenberg-Marquardt (damped least-squares) algorithm.
+ *
+ * Matches Python UMAP's find_ab_params() which uses scipy.optimize.curve_fit
+ * with method='lm' on 300 sample points over [0, 3*spread].
+ */
+function findABByFitting(minDist: number, spread: number): { a: number; b: number } {
+  // Build target: smooth step at minDist with exponential tail scaled by spread.
+  const N = 299;
+  const xv: number[] = [];
+  const yv: number[] = [];
+  for (let i = 0; i < N; i++) {
+    const x = ((i + 1) / N) * spread * 3;
+    xv.push(x);
+    yv.push(x < minDist ? 1.0 : Math.exp(-(x - minDist) / spread));
+  }
+
+  let a = 1.0;
+  let b = 1.0;
+  let lambda = 1e-3;  // LM damping
+
+  for (let iter = 0; iter < 500; iter++) {
+    // Accumulate J^T r and J^T J for the 2×2 normal equations.
+    let jta = 0, jtb = 0;
+    let jtja = 0, jtjb = 0, jtjab = 0;
+    let resNorm = 0;
+
+    for (let k = 0; k < N; k++) {
+      const x = xv[k];
+      const xpow = Math.pow(x, 2 * b);
+      const denom = 1.0 + a * xpow;
+      const pred = 1.0 / denom;
+      const res = pred - yv[k];
+      resNorm += res * res;
+
+      const denom2 = denom * denom;
+      const ja = -xpow / denom2;
+      const jb = x > 0 ? -2.0 * Math.log(x) * a * xpow / denom2 : 0.0;
+
+      jta   += ja * res;
+      jtb   += jb * res;
+      jtja  += ja * ja;
+      jtjb  += jb * jb;
+      jtjab += ja * jb;
+    }
+
+    // Solve (J^T J + lambda * I) * delta = -J^T r
+    const h11 = jtja + lambda;
+    const h22 = jtjb + lambda;
+    const h12 = jtjab;
+    const det = h11 * h22 - h12 * h12;
+    if (Math.abs(det) < 1e-20) break;
+
+    const da = -(h22 * jta - h12 * jtb) / det;
+    const db = -(h11 * jtb - h12 * jta) / det;
+
+    const na = Math.max(1e-4, a + da);
+    const nb = Math.max(1e-4, b + db);
+
+    // Evaluate new residual to decide whether to accept the step.
+    let newResNorm = 0;
+    for (let k = 0; k < N; k++) {
+      const xpow = Math.pow(xv[k], 2 * nb);
+      const res = 1.0 / (1.0 + na * xpow) - yv[k];
+      newResNorm += res * res;
+    }
+
+    if (newResNorm < resNorm) {
+      a = na;
+      b = nb;
+      lambda = Math.max(1e-10, lambda / 10);
+    } else {
+      lambda = Math.min(1e10, lambda * 10);
+    }
+
+    if (Math.abs(da) < 1e-8 && Math.abs(db) < 1e-8) break;
+  }
+
   return { a, b };
-}
-
-function approximateB(minDist: number, spread: number): number {
-  // Approximate b from spread
-  return 1.0 / (spread * 1.2);
-}
-
-function approximateA(minDist: number, spread: number, b: number): number {
-  // Approximate a so that 1/(1 + a * minDist^(2b)) ~ 1
-  if (minDist < 1e-6) return 1.8956;
-  return (1.0 / (1.0 + 1e-3) - 1.0) / -(Math.pow(minDist, 2 * b));
 }
 
 // ─── Stateful class API ───────────────────────────────────────────────────────

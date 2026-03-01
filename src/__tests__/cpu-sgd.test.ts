@@ -5,8 +5,8 @@ import { computeEps } from './test-helpers';
 
 function makeSimpleGraph(): FuzzyGraph {
   return {
-    rows: new Float32Array([0, 1]),
-    cols: new Float32Array([1, 0]),
+    rows: new Uint32Array([0, 1]),
+    cols: new Uint32Array([1, 0]),
     vals: new Float32Array([1.0, 1.0]),
     nVertices: 2,
   };
@@ -46,20 +46,23 @@ describe('cpuSgd', () => {
   });
 
   it('attraction updates both head node i and tail node j symmetrically', () => {
-    // Single directed edge 0→1 with gamma=0 (no repulsion) so only
-    // attraction runs. Old code updated only node i; the fix also updates j.
+    // Single directed edge 0→1 with gamma=0 (no repulsion) so only attraction
+    // runs. After Bug 4 fix, epochOfNextSample is initialised to epochsPerSample,
+    // so an edge with eps=1.0 fires at epoch 1 (not epoch 0). We run 2 epochs so
+    // the edge fires exactly once — then verify both nodes moved.
     const n = 2;
     const nComponents = 2;
     const embedding = new Float32Array([5, 0, -5, 0]); // node 0 at (5,0), node 1 at (-5,0)
     const graph: FuzzyGraph = {
-      rows: new Float32Array([0]),
-      cols: new Float32Array([1]),
+      rows: new Uint32Array([0]),
+      cols: new Uint32Array([1]),
       vals: new Float32Array([1.0]),
       nVertices: 2,
     };
-    const eps = new Float32Array([1.0]); // sample once at epoch 0
+    // eps=1.0 → epochOfNextSample initialised to 1.0; fires at epoch 1 (epoch >= 1.0)
+    const eps = new Float32Array([1.0]);
 
-    cpuSgd(embedding, graph, eps, n, nComponents, 1, { ...params, gamma: 0 });
+    cpuSgd(embedding, graph, eps, n, nComponents, 2, { ...params, gamma: 0 });
 
     // Head node 0 must move toward tail node 1 (x decreases from 5)
     expect(embedding[0]).toBeLessThan(5);

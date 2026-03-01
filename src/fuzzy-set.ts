@@ -1,6 +1,6 @@
 export interface FuzzyGraph {
-  rows: Float32Array;    // source node indices
-  cols: Float32Array;    // target node indices
+  rows: Uint32Array;     // source node indices
+  cols: Uint32Array;     // target node indices
   vals: Float32Array;    // edge weights
   nVertices: number;
 }
@@ -79,8 +79,8 @@ export function computeTransformFuzzyWeights(
   }
 
   return {
-    rows: new Float32Array(rowList),
-    cols: new Float32Array(colList),
+    rows: new Uint32Array(rowList),
+    cols: new Uint32Array(colList),
     vals: new Float32Array(valList),
     nVertices: nNew,
   };
@@ -139,7 +139,7 @@ function symmetrize(
   vals: number[],
   n: number,
   mixRatio: number
-): { rows: Float32Array; cols: Float32Array; vals: Float32Array } {
+): { rows: Uint32Array; cols: Uint32Array; vals: Float32Array } {
   // Step 1: store each directed edge weight individually.
   // Use numeric composite key (r * n + c) — safe for n up to ~94M.
   const forward = new Map<number, number>();
@@ -165,8 +165,8 @@ function symmetrize(
   }
 
   return {
-    rows: new Float32Array(outRows),
-    cols: new Float32Array(outCols),
+    rows: new Uint32Array(outRows),
+    cols: new Uint32Array(outCols),
     vals: new Float32Array(outVals),
   };
 }

@@ -1,7 +1,9 @@
 /// <reference types="@webgpu/types" />
 
-// Vite raw import for the WGSL shader source
+// Vite raw import for the WGSL shader sources
 import shaderCode from './shaders/sgd.wgsl?raw';
+import applyForcesShaderCode from './shaders/apply-forces.wgsl?raw';
+import { getGPUDevice } from './device';
 
 export interface SGDParams {
   a: number;
@@ -12,20 +14,41 @@ export interface SGDParams {
 
 /**
  * GPU-accelerated SGD optimizer for UMAP embedding.
- * Each GPU thread processes one graph edge, applying attraction and repulsion forces.
+ *
+ * Uses a two-pass design per epoch to eliminate write-write races on shared
+ * vertex positions (Bug 2 fix):
+ *   Pass 1 (sgd.wgsl):           Each thread accumulates its attraction and
+ *                                  repulsion gradients into an atomic<i32>
+ *                                  forces buffer — no direct embedding writes.
+ *   Pass 2 (apply-forces.wgsl):  Each thread applies one element's accumulated
+ *                                  force to the embedding and resets the
+ *                                  accumulator to zero for the next epoch.
+ *
+ * Both passes are submitted in the same command encoder so WebGPU guarantees
+ * sequential execution and storage-buffer visibility between them.
  */
 export class GPUSgd {
   private device!: GPUDevice;
-  private pipeline!: GPUComputePipeline;
+  private sgdPipeline!: GPUComputePipeline;
+  private applyForcesPipeline!: GPUComputePipeline;
 
   async init(): Promise<void> {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error('WebGPU not supported');
-    this.device = await adapter.requestDevice();
-    this.pipeline = this.device.createComputePipeline({
+    // Bug 11 fix: use the shared cached device (handles device.lost and avoids
+    // exhausting the browser's device limit on repeated fit() calls).
+    const device = await getGPUDevice();
+    if (!device) throw new Error('WebGPU not supported');
+    this.device = device;
+    this.sgdPipeline = this.device.createComputePipeline({
       layout: 'auto',
       compute: {
         module: this.device.createShaderModule({ code: shaderCode }),
+        entryPoint: 'main',
+      },
+    });
+    this.applyForcesPipeline = this.device.createComputePipeline({
+      layout: 'auto',
+      compute: {
+        module: this.device.createShaderModule({ code: applyForcesShaderCode }),
         entryPoint: 'main',
       },
     });
@@ -57,8 +80,9 @@ export class GPUSgd {
   ): Promise<Float32Array> {
     const { device } = this;
     const nEdges = head.length;
+    const nEmbeddingElements = nVertices * nComponents;
 
-    // Create GPU buffers
+    // --- SGD pass buffers ---
     const embeddingBuf = this.makeBuffer(
       embedding,
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
@@ -67,7 +91,10 @@ export class GPUSgd {
     const tailBuf = this.makeBuffer(tail, GPUBufferUsage.STORAGE);
     const epsBuf = this.makeBuffer(epochsPerSample, GPUBufferUsage.STORAGE);
 
-    const epochNext = new Float32Array(nEdges).fill(0);
+    // Bug 4 fix: initialize epoch_of_next_sample to epochsPerSample (not 0).
+    // The Python reference sets epoch_of_next_sample = epochs_per_sample.copy(),
+    // so no edge fires in epoch 0 — they each wait at least one sampling period.
+    const epochNext = new Float32Array(epochsPerSample);
     const epochNextBuf = this.makeBuffer(epochNext, GPUBufferUsage.STORAGE);
 
     const epochNextNeg = new Float32Array(nEdges);
@@ -82,21 +109,66 @@ export class GPUSgd {
     }
     const seedsBuf = this.makeBuffer(seeds, GPUBufferUsage.STORAGE);
 
-    // Params uniform buffer: 10 x 4 bytes = 40 bytes
-    const paramsBuf = device.createBuffer({
+    // Forces buffer: atomic<i32> accumulator, zero-initialized.
+    // Shared between the SGD pass (writes) and the apply-forces pass (reads+resets).
+    const forcesBuf = device.createBuffer({
+      size: nEmbeddingElements * 4,
+      usage: GPUBufferUsage.STORAGE,
+      mappedAtCreation: true,
+    });
+    new Int32Array(forcesBuf.getMappedRange()).fill(0);
+    forcesBuf.unmap();
+
+    // SGD params uniform buffer: 5×u32 + 4×f32 + 1×u32 = 40 bytes
+    const sgdParamsBuf = device.createBuffer({
       size: 40,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
+    // Apply-forces params uniform buffer: u32 + f32 = 8 bytes (padded to 16 for alignment)
+    const applyParamsBuf = device.createBuffer({
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Bug 9 fix: create both bind groups ONCE before the epoch loop.
+    // GPUBindGroups capture references to buffer objects, not their contents —
+    // writeBuffer() updates to sgdParamsBuf / applyParamsBuf are visible to
+    // subsequent dispatches without recreating the bind group.
+    // Previously sgdBindGroup was recreated on every epoch (500× per run),
+    // which is an expensive GPU-side descriptor allocation each time.
+    const sgdBindGroup = device.createBindGroup({
+      layout: this.sgdPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: epsBuf } },
+        { binding: 1, resource: { buffer: headBuf } },
+        { binding: 2, resource: { buffer: tailBuf } },
+        { binding: 3, resource: { buffer: embeddingBuf } },
+        { binding: 4, resource: { buffer: epochNextBuf } },
+        { binding: 5, resource: { buffer: epochNextNegBuf } },
+        { binding: 6, resource: { buffer: sgdParamsBuf } },
+        { binding: 7, resource: { buffer: seedsBuf } },
+        { binding: 8, resource: { buffer: forcesBuf } },
+      ],
+    });
+
+    const applyBindGroup = device.createBindGroup({
+      layout: this.applyForcesPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: embeddingBuf } },
+        { binding: 1, resource: { buffer: forcesBuf } },
+        { binding: 2, resource: { buffer: applyParamsBuf } },
+      ],
+    });
+
     // Run epochs
     for (let epoch = 0; epoch < nEpochs; epoch++) {
-      const alpha = 1.0 - epoch / nEpochs; // linear LR decay
+      const alpha = 1.0 - epoch / nEpochs;
 
-      // Write params uniform: 5 u32 + 4 f32 + 1 u32 = 40 bytes
-      const paramsData = new ArrayBuffer(40);
-      const u32View = new Uint32Array(paramsData);
-      const f32View = new Float32Array(paramsData);
-
+      // Write SGD params uniform
+      const sgdParamsData = new ArrayBuffer(40);
+      const u32View = new Uint32Array(sgdParamsData);
+      const f32View = new Float32Array(sgdParamsData);
       u32View[0] = nEdges;
       u32View[1] = nVertices;
       u32View[2] = nComponents;
@@ -107,33 +179,35 @@ export class GPUSgd {
       f32View[7] = params.b;
       f32View[8] = params.gamma;
       u32View[9] = params.negativeSampleRate;
+      device.queue.writeBuffer(sgdParamsBuf, 0, sgdParamsData);
 
-      device.queue.writeBuffer(paramsBuf, 0, paramsData);
+      // Write apply-forces params uniform
+      const applyParamsData = new ArrayBuffer(16);
+      const applyU32 = new Uint32Array(applyParamsData);
+      const applyF32 = new Float32Array(applyParamsData);
+      applyU32[0] = nEmbeddingElements;
+      applyF32[1] = alpha;
+      device.queue.writeBuffer(applyParamsBuf, 0, applyParamsData);
 
-      const bindGroup = device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: epsBuf } },
-          { binding: 1, resource: { buffer: headBuf } },
-          { binding: 2, resource: { buffer: tailBuf } },
-          { binding: 3, resource: { buffer: embeddingBuf } },
-          { binding: 4, resource: { buffer: epochNextBuf } },
-          { binding: 5, resource: { buffer: epochNextNegBuf } },
-          { binding: 6, resource: { buffer: paramsBuf } },
-          { binding: 7, resource: { buffer: seedsBuf } },
-        ],
-      });
-
+      // Submit both passes in one encoder: WebGPU guarantees sequential execution
+      // and storage-buffer visibility between compute passes within the same submit.
       const encoder = device.createCommandEncoder();
-      const pass = encoder.beginComputePass();
-      pass.setPipeline(this.pipeline);
-      pass.setBindGroup(0, bindGroup);
-      pass.dispatchWorkgroups(Math.ceil(nEdges / 256));
-      pass.end();
+
+      const sgdPass = encoder.beginComputePass();
+      sgdPass.setPipeline(this.sgdPipeline);
+      sgdPass.setBindGroup(0, sgdBindGroup);
+      sgdPass.dispatchWorkgroups(Math.ceil(nEdges / 256));
+      sgdPass.end();
+
+      const applyPass = encoder.beginComputePass();
+      applyPass.setPipeline(this.applyForcesPipeline);
+      applyPass.setBindGroup(0, applyBindGroup);
+      applyPass.dispatchWorkgroups(Math.ceil(nEmbeddingElements / 256));
+      applyPass.end();
+
       device.queue.submit([encoder.finish()]);
 
       // Await GPU every 10 epochs to avoid TDR (GPU timeout).
-      // The callback piggybacks on this existing sync point at no extra cost.
       if (epoch % 10 === 0) {
         await device.queue.onSubmittedWorkDone();
         onProgress?.(epoch, nEpochs);
@@ -161,7 +235,9 @@ export class GPUSgd {
     epochNextBuf.destroy();
     epochNextNegBuf.destroy();
     seedsBuf.destroy();
-    paramsBuf.destroy();
+    forcesBuf.destroy();
+    sgdParamsBuf.destroy();
+    applyParamsBuf.destroy();
     readBuf.destroy();
 
     return result;
