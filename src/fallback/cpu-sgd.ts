@@ -31,7 +31,10 @@ export function cpuSgd(
   const head = new Uint32Array(graph.rows);
   const tail = new Uint32Array(graph.cols);
 
-  const epochOfNextSample = new Float32Array(nEdges).fill(0);
+  // Bug 4 fix: initialize to epochsPerSample (not 0), matching the Python
+  // reference — epoch_of_next_sample = epochs_per_sample.copy() — so no edge
+  // fires at epoch 0 (where alpha is at its maximum value of 1.0).
+  const epochOfNextSample = new Float32Array(epochsPerSample);
   const epochOfNextNegativeSample = new Float32Array(nEdges);
   for (let i = 0; i < nEdges; i++) {
     epochOfNextNegativeSample[i] = epochsPerSample[i] / negativeSampleRate;
@@ -137,7 +140,8 @@ export function cpuSgdTransform(
   const head = new Uint32Array(graph.rows);  // new-point indices
   const tail = new Uint32Array(graph.cols);  // training-point indices
 
-  const epochOfNextSample = new Float32Array(nEdges).fill(0);
+  // Bug 4 fix: initialize to epochsPerSample (not 0), matching the Python reference.
+  const epochOfNextSample = new Float32Array(epochsPerSample);
   const epochOfNextNegativeSample = new Float32Array(nEdges);
   for (let i = 0; i < nEdges; i++) {
     epochOfNextNegativeSample[i] = epochsPerSample[i] / negativeSampleRate;

@@ -57,7 +57,9 @@ export async function computeKNN(
       .slice(0, nNeighbors);
 
     knnIndices.push(filtered.map(({ idx }: { idx: number }) => idx));
-    knnDistances.push(filtered.map(({ dist }: { dist: number }) => dist));
+    // Bug 3 fix: hnswlib 'l2' space returns SQUARED Euclidean distances.
+    // smooth_knn_dist expects true Euclidean distances, so take the square root.
+    knnDistances.push(filtered.map(({ dist }: { dist: number }) => Math.sqrt(dist)));
   }
 
   return { indices: knnIndices, distances: knnDistances };
@@ -95,7 +97,8 @@ export async function computeKNNWithIndex(
       .slice(0, nNeighbors);
 
     knnIndices.push(filtered.map(({ idx }: { idx: number }) => idx));
-    knnDistances.push(filtered.map(({ dist }: { dist: number }) => dist));
+    // Bug 3 fix: hnswlib 'l2' space returns SQUARED Euclidean distances.
+    knnDistances.push(filtered.map(({ dist }: { dist: number }) => Math.sqrt(dist)));
   }
 
   const searchableIndex: HNSWSearchableIndex = {
@@ -111,7 +114,8 @@ export async function computeKNNWithIndex(
           .slice(0, k);
 
         indices.push(sorted.map(({ idx }: { idx: number }) => idx));
-        distances.push(sorted.map(({ dist }: { dist: number }) => dist));
+        // Bug 3 fix: take sqrt of squared L2 distances from hnswlib 'l2' space.
+        distances.push(sorted.map(({ dist }: { dist: number }) => Math.sqrt(dist)));
       }
 
       return { indices, distances };
