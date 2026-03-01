@@ -6,8 +6,8 @@ import { computeEps } from './test-helpers';
 /** Bipartite graph: new point 0 → training point 0, new point 1 → training point 1 */
 function makeBipartiteGraph(): FuzzyGraph {
   return {
-    rows: new Float32Array([0, 1]),   // new-point indices
-    cols: new Float32Array([0, 1]),   // training-point indices
+    rows: new Uint32Array([0, 1]),   // new-point indices
+    cols: new Uint32Array([0, 1]),   // training-point indices
     vals: new Float32Array([1.0, 1.0]),
     nVertices: 2,
   };
