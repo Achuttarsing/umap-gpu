@@ -12,5 +12,8 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
+    setupFiles: ['src/__tests__/setup-webgpu.ts'],
+    testTimeout: 60_000,   // GPU init + 500 epochs on software renderer can be slow
+    hookTimeout: 60_000,
   },
 });
