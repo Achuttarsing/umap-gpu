@@ -69,11 +69,12 @@ export function cpuSgd(
 
       epochOfNextSample[edgeIdx] += epochsPerSample[edgeIdx];
 
-      // Repulsion (negative samples)
-      const nNeg =
-        epochOfNextNegativeSample[edgeIdx] > 0
-          ? Math.floor(epochsPerSample[edgeIdx] / epochOfNextNegativeSample[edgeIdx])
-          : 0;
+      // Repulsion (negative samples) — matches umap-js reference formula
+      const epochsPerNeg = epochsPerSample[edgeIdx] / negativeSampleRate;
+      const nNeg = Math.max(0, Math.floor(
+        (epoch - epochOfNextNegativeSample[edgeIdx]) / epochsPerNeg
+      ));
+      epochOfNextNegativeSample[edgeIdx] += nNeg * epochsPerNeg;
 
       for (let s = 0; s < nNeg; s++) {
         const k = Math.floor(Math.random() * nVertices);
@@ -96,9 +97,6 @@ export function cpuSgd(
           embedding[i * nComponents + d] += alpha * grad;
         }
       }
-
-      epochOfNextNegativeSample[edgeIdx] +=
-        epochsPerSample[edgeIdx] / negativeSampleRate;
     }
   }
 
@@ -175,11 +173,12 @@ export function cpuSgdTransform(
 
       epochOfNextSample[edgeIdx] += epochsPerSample[edgeIdx];
 
-      // Repulsion: push new point away from random training points
-      const nNeg =
-        epochOfNextNegativeSample[edgeIdx] > 0
-          ? Math.floor(epochsPerSample[edgeIdx] / epochOfNextNegativeSample[edgeIdx])
-          : 0;
+      // Repulsion: push new point away from random training points — matches umap-js reference formula
+      const epochsPerNeg = epochsPerSample[edgeIdx] / negativeSampleRate;
+      const nNeg = Math.max(0, Math.floor(
+        (epoch - epochOfNextNegativeSample[edgeIdx]) / epochsPerNeg
+      ));
+      epochOfNextNegativeSample[edgeIdx] += nNeg * epochsPerNeg;
 
       for (let s = 0; s < nNeg; s++) {
         const k = Math.floor(Math.random() * nTrain);
@@ -201,9 +200,6 @@ export function cpuSgdTransform(
           embeddingNew[i * nComponents + d] += alpha * clip(gradCoeffRep * diff);
         }
       }
-
-      epochOfNextNegativeSample[edgeIdx] +=
-        epochsPerSample[edgeIdx] / negativeSampleRate;
     }
   }
 
