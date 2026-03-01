@@ -407,7 +407,7 @@ export function computeEpochsPerSample(
   const result = new Float32Array(weights.length);
   for (let i = 0; i < weights.length; i++) {
     const normalized = weights[i] / maxWeight;
-    result[i] = normalized > 0 ? nEpochs / normalized : -1;
+    result[i] = normalized > 0 ? 1.0 / normalized : -1;
   }
   return result;
 }
