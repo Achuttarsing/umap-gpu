@@ -1,13 +1,17 @@
 # API Reference
 
-## `fit(vectors, opts?)`
+## `fit(vectors, opts?, onProgress?)`
 
 Fit UMAP to the given high-dimensional vectors and return a low-dimensional embedding.
 
 **Signature**
 
 ```ts
-function fit(vectors: number[][], opts?: UMAPOptions): Promise<Float32Array>
+function fit(
+  vectors: number[][],
+  opts?: UMAPOptions,
+  onProgress?: ProgressCallback
+): Promise<Float32Array>
 ```
 
 **Parameters**
@@ -16,6 +20,7 @@ function fit(vectors: number[][], opts?: UMAPOptions): Promise<Float32Array>
 |-----------|------|-------------|
 | `vectors` | `number[][]` | Array of high-dimensional input points. All vectors must have the same dimensionality. |
 | `opts` | `UMAPOptions` | Optional configuration. See [Configuration](/guide/configuration). |
+| `onProgress` | `ProgressCallback` | Optional callback invoked after each optimisation epoch. Receives `(epoch, nEpochs)`. |
 
 **Returns**
 
@@ -26,7 +31,9 @@ A `Float32Array` of length `vectors.length × nComponents`. Point `i` occupies i
 ```ts
 import { fit } from 'umap-gpu';
 
-const embedding = await fit(vectors, { nNeighbors: 15, minDist: 0.1 });
+const embedding = await fit(vectors, { nNeighbors: 15, minDist: 0.1 }, (epoch, total) => {
+  console.log(`Epoch ${epoch}/${total}`);
+});
 // embedding[i*2]   → x of point i
 // embedding[i*2+1] → y of point i
 ```
@@ -61,12 +68,12 @@ The low-dimensional embedding produced by the last `fit()` call. `null` before `
 
 ### Methods
 
-#### `fit(vectors)`
+#### `fit(vectors, onProgress?)`
 
 Train UMAP on `vectors`. Stores the resulting embedding in `this.embedding` and retains the HNSW index for subsequent `transform()` calls.
 
 ```ts
-async fit(vectors: number[][]): Promise<this>
+async fit(vectors: number[][], onProgress?: ProgressCallback): Promise<this>
 ```
 
 Returns `this` for chaining.
@@ -107,7 +114,7 @@ async fit_transform(
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `vectors` | `number[][]` | Array of high-dimensional input points. All vectors must have the same dimensionality. |
-| `onProgress` | `ProgressCallback` | Optional callback invoked after each optimisation epoch with a `[0, 1]` progress value. |
+| `onProgress` | `ProgressCallback` | Optional callback invoked after each optimisation epoch. Receives `(epoch, nEpochs)`. |
 | `normalize` | `boolean` | When `true`, min-max normalises each dimension of the returned embedding to [0, 1]. The stored training embedding is never mutated. Default: `false`. |
 
 **Example**
@@ -117,8 +124,10 @@ import { UMAP } from 'umap-gpu';
 
 const umap = new UMAP({ nNeighbors: 15, nComponents: 2 });
 
-// Train
-await umap.fit(trainVectors);
+// Train with progress reporting
+await umap.fit(trainVectors, (epoch, total) => {
+  console.log(`${epoch}/${total}`);
+});
 console.log(umap.embedding); // Float32Array [nTrain × 2]
 
 // Project new points
@@ -132,18 +141,48 @@ const embedding = await umap.fit_transform(allVectors);
 
 ## `isWebGPUAvailable()`
 
-Returns `true` if the current runtime exposes a WebGPU adapter (i.e. `navigator.gpu` exists), `false` otherwise.
+Fast synchronous heuristic: returns `true` if `navigator.gpu` exists in the current runtime.
 
 ```ts
 function isWebGPUAvailable(): boolean
 ```
+
+> **Note:** A `true` result does **not** guarantee a WebGPU adapter can be
+> acquired — `requestAdapter()` may still return `null` (no compatible GPU,
+> or the browser has disabled WebGPU for the page).  Use
+> `checkWebGPUAvailable()` for a reliable async check.
 
 **Example**
 
 ```ts
 import { isWebGPUAvailable } from 'umap-gpu';
 
-console.log(isWebGPUAvailable()); // true → GPU path, false → CPU fallback
+if (isWebGPUAvailable()) {
+  // navigator.gpu exists — GPU path will be attempted
+}
+```
+
+---
+
+## `checkWebGPUAvailable()`
+
+Reliably check whether WebGPU is usable by attempting to acquire an adapter.
+The result is cached — repeated calls are free.
+
+```ts
+function checkWebGPUAvailable(): Promise<boolean>
+```
+
+**Example**
+
+```ts
+import { checkWebGPUAvailable } from 'umap-gpu';
+
+if (await checkWebGPUAvailable()) {
+  console.log('WebGPU confirmed — GPU path active');
+} else {
+  console.log('Falling back to CPU path');
+}
 ```
 
 ---
@@ -176,17 +215,25 @@ interface UMAPOptions {
 ### `ProgressCallback`
 
 ```ts
-type ProgressCallback = (progress: number) => void;
+type ProgressCallback = (epoch: number, nEpochs: number) => void;
 ```
 
-A function called after each optimisation epoch. `progress` is a value in `[0, 1]`.
+A function called after each optimisation epoch. `epoch` is the zero-based
+index of the epoch that just completed; `nEpochs` is the total number of
+epochs. Use these to compute a fraction: `epoch / nEpochs`.
+
+```ts
+const onProgress: ProgressCallback = (epoch, nEpochs) => {
+  setProgress(epoch / nEpochs); // value in [0, 1)
+};
+```
 
 ### `KNNResult`
 
 ```ts
 interface KNNResult {
-  indices: Uint32Array;
-  distances: Float32Array;
+  indices: number[][];
+  distances: number[][];
 }
 ```
 
@@ -194,8 +241,9 @@ interface KNNResult {
 
 ```ts
 interface FuzzyGraph {
-  rows: number[];
-  cols: number[];
+  rows: Uint32Array;
+  cols: Uint32Array;
   vals: Float32Array;
+  nVertices: number;
 }
 ```

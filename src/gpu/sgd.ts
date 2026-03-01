@@ -3,6 +3,7 @@
 // Vite raw import for the WGSL shader sources
 import shaderCode from './shaders/sgd.wgsl?raw';
 import applyForcesShaderCode from './shaders/apply-forces.wgsl?raw';
+import { getGPUDevice } from './device';
 
 export interface SGDParams {
   a: number;
@@ -32,9 +33,11 @@ export class GPUSgd {
   private applyForcesPipeline!: GPUComputePipeline;
 
   async init(): Promise<void> {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error('WebGPU not supported');
-    this.device = await adapter.requestDevice();
+    // Bug 11 fix: use the shared cached device (handles device.lost and avoids
+    // exhausting the browser's device limit on repeated fit() calls).
+    const device = await getGPUDevice();
+    if (!device) throw new Error('WebGPU not supported');
+    this.device = device;
     this.sgdPipeline = this.device.createComputePipeline({
       layout: 'auto',
       compute: {
@@ -128,7 +131,27 @@ export class GPUSgd {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Pre-create static apply-forces bind group (embedding + forces + params)
+    // Bug 9 fix: create both bind groups ONCE before the epoch loop.
+    // GPUBindGroups capture references to buffer objects, not their contents —
+    // writeBuffer() updates to sgdParamsBuf / applyParamsBuf are visible to
+    // subsequent dispatches without recreating the bind group.
+    // Previously sgdBindGroup was recreated on every epoch (500× per run),
+    // which is an expensive GPU-side descriptor allocation each time.
+    const sgdBindGroup = device.createBindGroup({
+      layout: this.sgdPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: epsBuf } },
+        { binding: 1, resource: { buffer: headBuf } },
+        { binding: 2, resource: { buffer: tailBuf } },
+        { binding: 3, resource: { buffer: embeddingBuf } },
+        { binding: 4, resource: { buffer: epochNextBuf } },
+        { binding: 5, resource: { buffer: epochNextNegBuf } },
+        { binding: 6, resource: { buffer: sgdParamsBuf } },
+        { binding: 7, resource: { buffer: seedsBuf } },
+        { binding: 8, resource: { buffer: forcesBuf } },
+      ],
+    });
+
     const applyBindGroup = device.createBindGroup({
       layout: this.applyForcesPipeline.getBindGroupLayout(0),
       entries: [
@@ -165,21 +188,6 @@ export class GPUSgd {
       applyU32[0] = nEmbeddingElements;
       applyF32[1] = alpha;
       device.queue.writeBuffer(applyParamsBuf, 0, applyParamsData);
-
-      const sgdBindGroup = device.createBindGroup({
-        layout: this.sgdPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: epsBuf } },
-          { binding: 1, resource: { buffer: headBuf } },
-          { binding: 2, resource: { buffer: tailBuf } },
-          { binding: 3, resource: { buffer: embeddingBuf } },
-          { binding: 4, resource: { buffer: epochNextBuf } },
-          { binding: 5, resource: { buffer: epochNextNegBuf } },
-          { binding: 6, resource: { buffer: sgdParamsBuf } },
-          { binding: 7, resource: { buffer: seedsBuf } },
-          { binding: 8, resource: { buffer: forcesBuf } },
-        ],
-      });
 
       // Submit both passes in one encoder: WebGPU guarantees sequential execution
       // and storage-buffer visibility between compute passes within the same submit.
