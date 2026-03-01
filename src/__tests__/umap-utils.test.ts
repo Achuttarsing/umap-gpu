@@ -33,19 +33,20 @@ describe('findAB', () => {
 });
 
 describe('computeEpochsPerSample', () => {
-  it('assigns nEpochs to the max-weight edge', () => {
+  it('assigns period 1 to the max-weight edge', () => {
     const weights = new Float32Array([0.5, 1.0, 0.25]);
     const result = computeEpochsPerSample(weights, 100);
-    // max weight (1.0) → 100 / 1.0 = 100
-    expect(result[1]).toBeCloseTo(100);
+    // max weight (1.0) → normalized 1.0 → 1.0 / 1.0 = 1
+    expect(result[1]).toBeCloseTo(1);
   });
 
   it('assigns proportional periods to lower-weight edges', () => {
     const weights = new Float32Array([0.5, 1.0]);
     const result = computeEpochsPerSample(weights, 200);
-    // weight 0.5 → normalized 0.5 → 200 / 0.5 = 400
-    expect(result[0]).toBeCloseTo(400);
-    expect(result[1]).toBeCloseTo(200);
+    // weight 0.5 → normalized 0.5 → 1.0 / 0.5 = 2
+    expect(result[0]).toBeCloseTo(2);
+    // weight 1.0 → normalized 1.0 → 1.0 / 1.0 = 1
+    expect(result[1]).toBeCloseTo(1);
   });
 
   it('assigns -1 to zero-weight edges', () => {
