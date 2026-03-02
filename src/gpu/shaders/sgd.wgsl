@@ -92,7 +92,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     epoch_of_next_negative_sample[edge_idx] += f32(n_neg) * epochs_per_neg;
   }
 
-  var rng = xorshift(rng_seeds[edge_idx] + params.current_epoch * 6364136223u);
+  // 2654435761u is the 32-bit golden-ratio hash constant (0x9E3779B1),
+  // which fits in u32 unlike the 64-bit LCG value 6364136223 used originally.
+  // Bug 14 fix: the original constant exceeded u32 range and failed WGSL validation.
+  var rng = xorshift(rng_seeds[edge_idx] + params.current_epoch * 2654435761u);
 
   for (var s = 0u; s < n_neg; s++) {
     rng = xorshift(rng);
