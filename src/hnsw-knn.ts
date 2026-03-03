@@ -29,40 +29,8 @@ export async function computeKNN(
   nNeighbors: number,
   opts: HNSWOptions = {}
 ): Promise<KNNResult> {
-  const { M = 16, efConstruction = 200, efSearch = 50 } = opts;
-
-  const lib = await loadHnswlib();
-  const dim = vectors[0].length;
-  const n = vectors.length;
-
-  // HierarchicalNSW(spaceName, numDimensions, autoSaveFilename)
-  const index = new lib.HierarchicalNSW('l2', dim, '');
-  // initIndex(maxElements, m, efConstruction, randomSeed)
-  index.initIndex(n, M, efConstruction, 200);
-  index.setEfSearch(Math.max(efSearch, nNeighbors));
-
-  // Add all vectors (returns auto-generated labels)
-  index.addItems(vectors, false);
-
-  // Query each vector for its nNeighbors+1 nearest (includes self)
-  const knnIndices: number[][] = [];
-  const knnDistances: number[][] = [];
-
-  for (let i = 0; i < n; i++) {
-    const result = index.searchKnn(vectors[i], nNeighbors + 1, undefined);
-    // Remove self (distance ~ 0)
-    const filtered = result.neighbors
-      .map((idx: number, j: number) => ({ idx, dist: result.distances[j] }))
-      .filter(({ idx }: { idx: number }) => idx !== i)
-      .slice(0, nNeighbors);
-
-    knnIndices.push(filtered.map(({ idx }: { idx: number }) => idx));
-    // Bug 3 fix: hnswlib 'l2' space returns SQUARED Euclidean distances.
-    // smooth_knn_dist expects true Euclidean distances, so take the square root.
-    knnDistances.push(filtered.map(({ dist }: { dist: number }) => Math.sqrt(dist)));
-  }
-
-  return { indices: knnIndices, distances: knnDistances };
+  const { knn } = await computeKNNWithIndex(vectors, nNeighbors, opts);
+  return knn;
 }
 
 /**
