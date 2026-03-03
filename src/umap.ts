@@ -1,4 +1,4 @@
-import { computeKNN, computeKNNWithIndex } from './hnsw-knn';
+import { computeKNNWithIndex } from './hnsw-knn';
 import type { HNSWSearchableIndex } from './hnsw-knn';
 import { computeFuzzySimplicialSet, computeTransformFuzzyWeights } from './fuzzy-set';
 import { GPUSgd } from './gpu/sgd';
@@ -18,6 +18,8 @@ export interface UMAPOptions {
   spread?: number;
   /** HNSW index parameters */
   hnsw?: { M?: number; efConstruction?: number; efSearch?: number };
+  /** Enable timing instrumentation via console.time/timeEnd (default: false) */
+  debug?: boolean;
 }
 
 /**
@@ -42,71 +44,7 @@ export async function fit(
   opts: UMAPOptions = {},
   onProgress?: ProgressCallback
 ): Promise<Float32Array> {
-  const {
-    nComponents = 2,
-    nNeighbors = 15,
-    minDist = 0.1,
-    spread = 1.0,
-    hnsw = {},
-  } = opts;
-  const nEpochs = opts.nEpochs ?? (vectors.length > 10_000 ? 200 : 500);
-
-  // 1. HNSW kNN
-  console.time('knn');
-  const { indices, distances } = await computeKNN(vectors, nNeighbors, {
-    M: hnsw.M ?? 16,
-    efConstruction: hnsw.efConstruction ?? 200,
-    efSearch: hnsw.efSearch ?? 50,
-  });
-  console.timeEnd('knn');
-
-  // 2. Fuzzy simplicial set
-  console.time('fuzzy-set');
-  const graph = computeFuzzySimplicialSet(indices, distances, nNeighbors);
-  console.timeEnd('fuzzy-set');
-
-  // 3. Compute a, b curve parameters from minDist/spread
-  const { a, b } = findAB(minDist, spread);
-
-  // 4. Epochs per sample (edge sampling schedule)
-  const epochsPerSample = computeEpochsPerSample(graph.vals, nEpochs);
-
-  // 5. Random initial embedding
-  const n = vectors.length;
-  const embedding = new Float32Array(n * nComponents);
-  for (let i = 0; i < embedding.length; i++) {
-    embedding[i] = Math.random() * 20 - 10;
-  }
-
-  // 6. SGD optimization (GPU with CPU fallback)
-  console.time('sgd');
-  let result: Float32Array;
-
-  if (isWebGPUAvailable()) {
-    try {
-      const gpu = new GPUSgd();
-      await gpu.init();
-      result = await gpu.optimize(
-        embedding,
-        new Uint32Array(graph.rows),
-        new Uint32Array(graph.cols),
-        epochsPerSample,
-        n,
-        nComponents,
-        nEpochs,
-        { a, b, gamma: 1.0, negativeSampleRate: 5 },
-        onProgress
-      );
-    } catch (err) {
-      console.warn('WebGPU SGD failed, falling back to CPU:', err);
-      result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b }, onProgress);
-    }
-  } else {
-    result = cpuSgd(embedding, graph, epochsPerSample, n, nComponents, nEpochs, { a, b }, onProgress);
-  }
-  console.timeEnd('sgd');
-
-  return result;
+  return new UMAP(opts).fit_transform(vectors, onProgress);
 }
 
 /**
@@ -248,6 +186,7 @@ export class UMAP {
   private readonly _hnswOpts: NonNullable<UMAPOptions['hnsw']>;
   private readonly _a: number;
   private readonly _b: number;
+  private readonly _debug: boolean;
 
   /** The low-dimensional embedding produced by the last fit() call. */
   embedding: Float32Array | null = null;
@@ -262,6 +201,7 @@ export class UMAP {
     this._spread = opts.spread ?? 1.0;
     this._nEpochs = opts.nEpochs;
     this._hnswOpts = opts.hnsw ?? {};
+    this._debug = opts.debug ?? false;
     const { a, b } = findAB(this._minDist, this._spread);
     this._a = a;
     this._b = b;
@@ -279,18 +219,18 @@ export class UMAP {
     const { M = 16, efConstruction = 200, efSearch = 50 } = this._hnswOpts;
 
     // 1. Build HNSW index and compute k-NN (index is kept for transform)
-    console.time('knn');
+    if (this._debug) console.time('knn');
     const { knn, index } = await computeKNNWithIndex(vectors, this._nNeighbors, {
       M, efConstruction, efSearch,
     });
     this._hnswIndex = index;
     this._nTrain = n;
-    console.timeEnd('knn');
+    if (this._debug) console.timeEnd('knn');
 
     // 2. Fuzzy simplicial set
-    console.time('fuzzy-set');
+    if (this._debug) console.time('fuzzy-set');
     const graph = computeFuzzySimplicialSet(knn.indices, knn.distances, this._nNeighbors);
-    console.timeEnd('fuzzy-set');
+    if (this._debug) console.timeEnd('fuzzy-set');
 
     // 3. Epoch sampling schedule
     const epochsPerSample = computeEpochsPerSample(graph.vals, nEpochs);
@@ -302,7 +242,7 @@ export class UMAP {
     }
 
     // 5. SGD (GPU with CPU fallback)
-    console.time('sgd');
+    if (this._debug) console.time('sgd');
     if (isWebGPUAvailable()) {
       try {
         const gpu = new GPUSgd();
@@ -329,7 +269,7 @@ export class UMAP {
         a: this._a, b: this._b,
       }, onProgress);
     }
-    console.timeEnd('sgd');
+    if (this._debug) console.timeEnd('sgd');
 
     return this;
   }
