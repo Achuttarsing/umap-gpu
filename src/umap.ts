@@ -1,9 +1,9 @@
 import { computeKNNWithIndex } from './hnsw-knn';
 import type { HNSWSearchableIndex } from './hnsw-knn';
 import { computeFuzzySimplicialSet, computeTransformFuzzyWeights } from './fuzzy-set';
-import { GPUSgd } from './gpu/sgd';
-import { cpuSgd, cpuSgdTransform } from './fallback/cpu-sgd';
-import { isWebGPUAvailable } from './gpu/device';
+import { cpuSgdTransform } from './fallback/cpu-sgd';
+import { selectBackend } from './backend';
+import type { SGDBackend, BackendType } from './backend';
 
 export interface UMAPOptions {
   /** Embedding dimensionality (default: 2) */
@@ -20,6 +20,16 @@ export interface UMAPOptions {
   hnsw?: { M?: number; efConstruction?: number; efSearch?: number };
   /** Enable timing instrumentation via console.time/timeEnd (default: false) */
   debug?: boolean;
+  /**
+   * Force a specific SGD backend instead of auto-detecting.
+   * - `'webgpu'` — WebGPU compute shaders (fastest, requires WebGPU support)
+   * - `'webgl'`  — WebGL 2 fallback (wide browser support)
+   * - `'cpu'`    — Pure JavaScript (always available)
+   *
+   * When omitted, the best available backend is selected automatically:
+   * WebGPU → WebGL → CPU.
+   */
+  backend?: BackendType;
 }
 
 /**
@@ -187,9 +197,13 @@ export class UMAP {
   private readonly _a: number;
   private readonly _b: number;
   private readonly _debug: boolean;
+  private readonly _backendType: BackendType | undefined;
 
   /** The low-dimensional embedding produced by the last fit() call. */
   embedding: Float32Array | null = null;
+
+  /** The backend used by the last fit() call (`null` before fit). */
+  activeBackend: BackendType | null = null;
 
   private _hnswIndex: HNSWSearchableIndex | null = null;
   private _nTrain = 0;
@@ -202,6 +216,7 @@ export class UMAP {
     this._nEpochs = opts.nEpochs;
     this._hnswOpts = opts.hnsw ?? {};
     this._debug = opts.debug ?? false;
+    this._backendType = opts.backend;
     const { a, b } = findAB(this._minDist, this._spread);
     this._a = a;
     this._b = b;
@@ -241,34 +256,23 @@ export class UMAP {
       embedding[i] = Math.random() * 20 - 10;
     }
 
-    // 5. SGD (GPU with CPU fallback)
+    // 5. SGD (auto-select best backend: WebGPU → WebGL → CPU)
     if (this._debug) console.time('sgd');
-    if (isWebGPUAvailable()) {
-      try {
-        const gpu = new GPUSgd();
-        await gpu.init();
-        this.embedding = await gpu.optimize(
-          embedding,
-          new Uint32Array(graph.rows),
-          new Uint32Array(graph.cols),
-          epochsPerSample,
-          n,
-          this._nComponents,
-          nEpochs,
-          { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 },
-          onProgress
-        );
-      } catch (err) {
-        console.warn('WebGPU SGD failed, falling back to CPU:', err);
-        this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
-          a: this._a, b: this._b,
-        }, onProgress);
-      }
-    } else {
-      this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
-        a: this._a, b: this._b,
-      }, onProgress);
-    }
+    const backend = this._backendType
+      ? (await import('./backend')).getBackend(this._backendType)
+      : await selectBackend();
+    this.activeBackend = backend.type;
+
+    this.embedding = await backend.optimize(
+      embedding,
+      graph,
+      epochsPerSample,
+      n,
+      this._nComponents,
+      nEpochs,
+      { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 },
+      onProgress,
+    );
     if (this._debug) console.timeEnd('sgd');
 
     return this;

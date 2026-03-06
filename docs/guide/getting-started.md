@@ -36,7 +36,7 @@ const embedding = await fit(vectors);
 // embedding[i*2+1] → y coordinate of point i
 ```
 
-The function automatically uses WebGPU acceleration when available and silently falls back to CPU otherwise.
+The function automatically selects the best available backend (WebGPU → WebGL → CPU) and silently falls back through the chain.
 
 ## Train Once, Project Many Times
 
@@ -56,14 +56,23 @@ const projected = await umap.transform(newVectors);
 // Float32Array [nNew × 2]
 ```
 
-## Check GPU Availability
+## Check Backend Availability
 
 ```ts
-import { isWebGPUAvailable } from 'umap-gpu';
+import { isWebGPUAvailable, isWebGLAvailable } from 'umap-gpu';
 
 if (isWebGPUAvailable()) {
-  console.log('Running on GPU');
+  console.log('Running on WebGPU');
+} else if (isWebGLAvailable()) {
+  console.log('Running on WebGL');
 } else {
   console.log('Running on CPU fallback');
 }
+```
+
+You can also check which backend was actually used after fitting:
+
+```ts
+await umap.fit(vectors);
+console.log(umap.activeBackend); // 'webgpu', 'webgl', or 'cpu'
 ```

@@ -14,6 +14,7 @@ interface UMAPOptions {
     efConstruction?: number;
     efSearch?: number;
   };
+  backend?: 'webgpu' | 'webgl' | 'cpu';
 }
 ```
 
@@ -58,6 +59,17 @@ Typical range: `0.0` – `0.99`.
 
 The effective scale of the embedded points. Works in combination with `minDist` to control how tightly points are packed.
 
+### `backend`
+
+- **Type**: `'webgpu' | 'webgl' | 'cpu'`
+- **Default**: auto-detected (WebGPU → WebGL → CPU)
+
+Force a specific SGD backend instead of auto-detecting. Useful for testing, debugging, or when you know your target environment.
+
+- `'webgpu'` — WebGPU compute shaders (fastest, requires WebGPU support)
+- `'webgl'` — WebGL 2 fallback (wide browser support, >97% coverage)
+- `'cpu'` — Pure JavaScript (always available, works in Node.js/Bun/Deno)
+
 ## HNSW Options
 
 Passed as a nested object under the `hnsw` key. These control the performance/accuracy trade-off of the k-NN graph construction stage.
@@ -89,11 +101,12 @@ The size of the dynamic candidate list used at query time. Increase this to impr
 import { UMAP } from 'umap-gpu';
 
 const umap = new UMAP({
-  nComponents:  2,     // 2D output
-  nNeighbors:   20,    // wider neighborhood
-  nEpochs:      300,   // custom epoch count
-  minDist:      0.05,  // tighter clusters
+  nComponents:  2,       // 2D output
+  nNeighbors:   20,      // wider neighborhood
+  nEpochs:      300,     // custom epoch count
+  minDist:      0.05,    // tighter clusters
   spread:       1.0,
+  backend:      'webgl', // force WebGL backend
   hnsw: {
     M:              16,
     efConstruction: 200,

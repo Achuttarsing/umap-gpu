@@ -42,7 +42,7 @@ const embedding = await fit(vectors, { nNeighbors: 15, minDist: 0.1 }, (epoch, t
 
 1. HNSW k-nearest neighbor search (`O(n log n)` via hnswlib-wasm)
 2. Fuzzy simplicial set construction (graph weights)
-3. SGD optimization (WebGPU-accelerated, with CPU fallback)
+3. SGD optimization (WebGPU → WebGL → CPU, auto-selected)
 
 ---
 
@@ -65,6 +65,14 @@ embedding: Float32Array | null
 ```
 
 The low-dimensional embedding produced by the last `fit()` call. `null` before `fit()` is called.
+
+#### `activeBackend`
+
+```ts
+activeBackend: 'webgpu' | 'webgl' | 'cpu' | null
+```
+
+The SGD backend used by the last `fit()` call. `null` before `fit()` is called. Useful for diagnostics and logging.
 
 ### Methods
 
@@ -187,6 +195,58 @@ if (await checkWebGPUAvailable()) {
 
 ---
 
+## `isWebGLAvailable()`
+
+Synchronous check: returns `true` if a WebGL 2 context can be created.
+The result is cached after the first call.
+
+```ts
+function isWebGLAvailable(): boolean
+```
+
+**Example**
+
+```ts
+import { isWebGLAvailable } from 'umap-gpu';
+
+if (isWebGLAvailable()) {
+  console.log('WebGL 2 available');
+}
+```
+
+---
+
+## `selectBackend()`
+
+Select the best available SGD backend using the fallback chain:
+WebGPU → WebGL → CPU. Returns a ready-to-use `SGDBackend` instance.
+
+```ts
+function selectBackend(): Promise<SGDBackend>
+```
+
+**Example**
+
+```ts
+import { selectBackend } from 'umap-gpu';
+
+const backend = await selectBackend();
+console.log(`Using ${backend.type} backend`);
+```
+
+---
+
+## `getBackend(type)`
+
+Get a backend by explicit type. Useful for testing or when you know
+which backend you want.
+
+```ts
+function getBackend(type: BackendType): SGDBackend
+```
+
+---
+
 ## Types
 
 ### `UMAPOptions`
@@ -209,6 +269,32 @@ interface UMAPOptions {
     efConstruction?: number;
     efSearch?: number;
   };
+  /** Force a specific SGD backend: 'webgpu', 'webgl', or 'cpu'. Auto-detected if omitted. */
+  backend?: BackendType;
+}
+```
+
+### `BackendType`
+
+```ts
+type BackendType = 'webgpu' | 'webgl' | 'cpu';
+```
+
+### `SGDBackend`
+
+```ts
+interface SGDBackend {
+  readonly type: BackendType;
+  optimize(
+    embedding: Float32Array,
+    graph: FuzzyGraph,
+    epochsPerSample: Float32Array,
+    nVertices: number,
+    nComponents: number,
+    nEpochs: number,
+    params: SGDParams,
+    onProgress?: ProgressCallback,
+  ): Promise<Float32Array>;
 }
 ```
 
