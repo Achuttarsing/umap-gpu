@@ -40,6 +40,7 @@
     "build": "vite build && tsc",
     "dev": "vite",
     "test": "vitest run",
+    "bench": "npx vitest run --config vitest.bench.config.ts",
     "prepublishOnly": "bun test && bun run build",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
