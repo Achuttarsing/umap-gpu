@@ -76,7 +76,8 @@ export class GPUSgd {
     nComponents: number,
     nEpochs: number,
     params: SGDParams,
-    onProgress?: (epoch: number, nEpochs: number) => void
+    onProgress?: (epoch: number, nEpochs: number) => void,
+    rng: () => number = Math.random
   ): Promise<Float32Array> {
     const { device } = this;
     const nEdges = head.length;
@@ -105,7 +106,7 @@ export class GPUSgd {
 
     const seeds = new Uint32Array(nEdges);
     for (let i = 0; i < nEdges; i++) {
-      seeds[i] = (Math.random() * 0xffffffff) | 0;
+      seeds[i] = (rng() * 0xffffffff) | 0;
     }
     const seedsBuf = this.makeBuffer(seeds, GPUBufferUsage.STORAGE);
 

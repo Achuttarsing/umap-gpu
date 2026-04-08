@@ -4,6 +4,7 @@ import { computeFuzzySimplicialSet, computeTransformFuzzyWeights } from './fuzzy
 import { GPUSgd } from './gpu/sgd';
 import { cpuSgd, cpuSgdTransform } from './fallback/cpu-sgd';
 import { isWebGPUAvailable } from './gpu/device';
+import { makeRng } from './rng';
 
 export interface UMAPOptions {
   /** Embedding dimensionality (default: 2) */
@@ -20,6 +21,8 @@ export interface UMAPOptions {
   hnsw?: { M?: number; efConstruction?: number; efSearch?: number };
   /** Enable timing instrumentation via console.time/timeEnd (default: false) */
   debug?: boolean;
+  /** Random seed for reproducible results. When omitted, Math.random() is used. */
+  seed?: number;
 }
 
 /**
@@ -187,6 +190,7 @@ export class UMAP {
   private readonly _a: number;
   private readonly _b: number;
   private readonly _debug: boolean;
+  private readonly _rng: () => number;
 
   /** The low-dimensional embedding produced by the last fit() call. */
   embedding: Float32Array | null = null;
@@ -202,6 +206,7 @@ export class UMAP {
     this._nEpochs = opts.nEpochs;
     this._hnswOpts = opts.hnsw ?? {};
     this._debug = opts.debug ?? false;
+    this._rng = makeRng(opts.seed);
     const { a, b } = findAB(this._minDist, this._spread);
     this._a = a;
     this._b = b;
@@ -238,7 +243,7 @@ export class UMAP {
     // 4. Random initial embedding
     const embedding = new Float32Array(n * this._nComponents);
     for (let i = 0; i < embedding.length; i++) {
-      embedding[i] = Math.random() * 20 - 10;
+      embedding[i] = this._rng() * 20 - 10;
     }
 
     // 5. SGD (GPU with CPU fallback)
@@ -256,18 +261,19 @@ export class UMAP {
           this._nComponents,
           nEpochs,
           { a: this._a, b: this._b, gamma: 1.0, negativeSampleRate: 5 },
-          onProgress
+          onProgress,
+          this._rng
         );
       } catch (err) {
         console.warn('WebGPU SGD failed, falling back to CPU:', err);
         this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
           a: this._a, b: this._b,
-        }, onProgress);
+        }, onProgress, this._rng);
       }
     } else {
       this.embedding = cpuSgd(embedding, graph, epochsPerSample, n, this._nComponents, nEpochs, {
         a: this._a, b: this._b,
-      }, onProgress);
+      }, onProgress, this._rng);
     }
     if (this._debug) console.timeEnd('sgd');
 
@@ -326,7 +332,7 @@ export class UMAP {
       } else {
         // No neighbors found — fall back to random position
         for (let d = 0; d < this._nComponents; d++) {
-          embeddingNew[i * this._nComponents + d] = Math.random() * 20 - 10;
+          embeddingNew[i * this._nComponents + d] = this._rng() * 20 - 10;
         }
       }
     }
@@ -343,7 +349,9 @@ export class UMAP {
       this._nTrain,
       this._nComponents,
       transformEpochs,
-      { a: this._a, b: this._b }
+      { a: this._a, b: this._b },
+      undefined,
+      this._rng
     );
     return normalize ? normalizeEmbedding(result, nNew, this._nComponents) : result;
   }
