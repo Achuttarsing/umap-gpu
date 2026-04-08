@@ -23,7 +23,8 @@ export function cpuSgd(
   nComponents: number,
   nEpochs: number,
   params: CPUSgdParams,
-  onProgress?: (epoch: number, nEpochs: number) => void
+  onProgress?: (epoch: number, nEpochs: number) => void,
+  rng: () => number = Math.random
 ): Float32Array {
   const { a, b, gamma = 1.0, negativeSampleRate = 5 } = params;
   const nEdges = graph.rows.length;
@@ -80,7 +81,7 @@ export function cpuSgd(
       epochOfNextNegativeSample[edgeIdx] += nNeg * epochsPerNeg;
 
       for (let s = 0; s < nNeg; s++) {
-        const k = Math.floor(Math.random() * nVertices);
+        const k = Math.floor(rng() * nVertices);
         if (k === i) continue;
 
         let negDistSq = 0;
@@ -132,7 +133,8 @@ export function cpuSgdTransform(
   nComponents: number,
   nEpochs: number,
   params: CPUSgdParams,
-  onProgress?: (epoch: number, nEpochs: number) => void
+  onProgress?: (epoch: number, nEpochs: number) => void,
+  rng: () => number = Math.random
 ): Float32Array {
   const { a, b, gamma = 1.0, negativeSampleRate = 5 } = params;
   const nEdges = graph.rows.length;
@@ -185,7 +187,7 @@ export function cpuSgdTransform(
       epochOfNextNegativeSample[edgeIdx] += nNeg * epochsPerNeg;
 
       for (let s = 0; s < nNeg; s++) {
-        const k = Math.floor(Math.random() * nTrain);
+        const k = Math.floor(rng() * nTrain);
         if (k === j) continue;
 
         let negDistSq = 0;
