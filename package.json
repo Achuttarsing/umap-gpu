@@ -1,6 +1,6 @@
 {
   "name": "umap-gpu",
-  "version": "0.3.0",
+  "version": "0.1.1",
   "description": "UMAP with HNSW kNN and WebGPU-accelerated SGD",
   "type": "module",
   "main": "dist/index.js",
