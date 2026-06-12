@@ -9,7 +9,7 @@ Embed millions of high-dimensional vectors into 2D in seconds — not minutes.
 The bottleneck in UMAP is the SGD optimization loop: thousands of epochs, millions of edge updates per epoch. On CPU this is sequential. On GPU, all edges run in parallel across thousands of shader cores — expect a significant speedup on large datasets, scaling with both the number of points and the number of epochs.
 
 The k-NN stage uses [hnswlib-wasm](https://github.com/yoshoku/hnswlib-wasm) (O(n log n)) so it stays fast regardless.
-A transparent CPU fallback guarantees identical output everywhere WebGPU isn't available.
+A transparent CPU fallback runs the same algorithm wherever WebGPU isn't available, producing structurally equivalent embeddings.
 
 ## Install
 
@@ -66,6 +66,7 @@ const umap = new UMAP({
   nEpochs:     500,    // SGD iterations             (default: auto — 500 for <10k points, 200 otherwise)
   minDist:     0.1,    // min distance in embedding  (default: 0.1)
   spread:      1.0,    // scale of the embedding     (default: 1.0)
+  seed:        42,     // RNG seed for reproducibility (default: none → Math.random)
   hnsw: {
     M:               16,  // graph connectivity        (default: 16)
     efConstruction: 200,  // build-time search width  (default: 200)
