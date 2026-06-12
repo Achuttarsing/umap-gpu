@@ -5,6 +5,7 @@ import { GPUSgd } from './gpu/sgd';
 import { cpuSgd, cpuSgdTransform } from './fallback/cpu-sgd';
 import { isWebGPUAvailable } from './gpu/device';
 import { makeRng } from './rng';
+import { spectralInit } from './spectral-init';
 
 export interface UMAPOptions {
   /** Embedding dimensionality (default: 2) */
@@ -240,11 +241,10 @@ export class UMAP {
     // 3. Epoch sampling schedule
     const epochsPerSample = computeEpochsPerSample(graph.vals, nEpochs);
 
-    // 4. Random initial embedding
-    const embedding = new Float32Array(n * this._nComponents);
-    for (let i = 0; i < embedding.length; i++) {
-      embedding[i] = this._rng() * 20 - 10;
-    }
+    // 4. Spectral initial embedding (power iteration on the normalized graph
+    //    adjacency), matching the reference. Falls back to a small random
+    //    Gaussian embedding internally for degenerate / disconnected graphs.
+    const embedding = spectralInit(graph, n, this._nComponents, this._rng);
 
     // 5. SGD (GPU with CPU fallback)
     if (this._debug) console.time('sgd');

@@ -89,6 +89,13 @@ export function computeTransformFuzzyWeights(
 /**
  * Compute smooth kNN distances using binary search for each point's
  * sigma value, matching the target perplexity log2(k).
+ *
+ * Mirrors the reference implementation:
+ *   - rho is the distance to the nearest non-zero neighbor, floored at 1e-8.
+ *   - the binary search sums over neighbors j=1..k-1 (the j=0 / rho column is
+ *     excluded), targeting log2(k).
+ *   - the search is bounded to sigma ∈ [1e-20, 1e3] and the final sigma is
+ *     floored at 1e-10.
  */
 function smoothKnnDist(
   knnDistances: number[][],
@@ -98,31 +105,39 @@ function smoothKnnDist(
   const n = knnDistances.length;
   const sigmas = new Float32Array(n);
   const rhos = new Float32Array(n);
+  const target = Math.log2(k);
 
   for (let i = 0; i < n; i++) {
     const dists = knnDistances[i];
-    rhos[i] = dists.find((d) => d > 0) ?? 0;
 
-    let lo = 0;
-    let hi = Infinity;
-    let mid = 1.0;
-    const target = Math.log2(k);
+    // rho = distance to the nearest non-zero neighbor (floored at 1e-8).
+    let minNonzero = Infinity;
+    for (let j = 0; j < dists.length; j++) {
+      if (dists[j] > 0 && dists[j] < minNonzero) minNonzero = dists[j];
+    }
+    const rho = minNonzero === Infinity ? 0 : Math.max(minNonzero, 1e-8);
+    rhos[i] = rho;
+
+    let lo = 1e-20;
+    let hi = 1e3;
+    let sigma = 1.0;
 
     for (let iter = 0; iter < 64; iter++) {
+      // Sum over the tail neighbors j=1..k-1 (skip the rho column at j=0).
       let psum = 0;
-      for (let j = 0; j < dists.length; j++) {
-        psum += Math.exp(-Math.max(0, dists[j] - rhos[i]) / mid);
+      for (let j = 1; j < dists.length; j++) {
+        psum += Math.exp(-Math.max(dists[j] - rho, 0) / sigma);
       }
       if (Math.abs(psum - target) < SMOOTH_K_TOLERANCE) break;
       if (psum > target) {
-        hi = mid;
-        mid = (lo + hi) / 2;
+        hi = sigma;
+        sigma = (lo + sigma) / 2;
       } else {
-        lo = mid;
-        mid = hi === Infinity ? mid * 2 : (lo + hi) / 2;
+        lo = sigma;
+        sigma = hi >= 1e3 ? sigma * 2 : (sigma + hi) / 2;
       }
     }
-    sigmas[i] = mid;
+    sigmas[i] = Math.max(sigma, 1e-10);
   }
   return { sigmas, rhos };
 }

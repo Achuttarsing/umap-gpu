@@ -8,10 +8,9 @@
 @group(0) @binding(2) var<storage, read>       tail              : array<u32>;  // edge target
 @group(0) @binding(3) var<storage, read>       embedding         : array<f32>;  // [n * nComponents], read-only
 @group(0) @binding(4) var<storage, read_write> epoch_of_next_sample : array<f32>;
-@group(0) @binding(5) var<storage, read_write> epoch_of_next_negative_sample : array<f32>;
-@group(0) @binding(6) var<uniform>             params            : Params;
-@group(0) @binding(7) var<storage, read>       rng_seeds         : array<u32>;  // per-edge seed
-@group(0) @binding(8) var<storage, read_write> forces            : array<atomic<i32>>;  // [n * nComponents]
+@group(0) @binding(5) var<uniform>             params            : Params;
+@group(0) @binding(6) var<storage, read>       rng_seeds         : array<u32>;  // per-edge seed
+@group(0) @binding(7) var<storage, read_write> forces            : array<atomic<i32>>;  // [n * nComponents]
 
 // Scale factor for quantizing f32 gradients into i32 for atomic accumulation.
 // Gradients are clipped to [-4, 4]. With up to ~1000 edges sharing a vertex
@@ -62,14 +61,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let diff = embedding[i * nc + d] - embedding[j * nc + d];
     dist_sq += diff * diff;
   }
+  dist_sq = max(dist_sq, 1e-6);  // floor distance, matching the reference
 
   let pow_b = pow(dist_sq, params.b);
-  // Guard dist_sq == 0: b-1 is negative so pow(0, b-1) = +Inf.
-  let grad_coeff_attr = select(
-    -2.0 * params.a * params.b * (pow_b / dist_sq) / (params.a * pow_b + 1.0),
-    0.0,
-    dist_sq == 0.0
-  );
+  let grad_coeff_attr =
+    -2.0 * params.a * params.b * (pow_b / dist_sq) / (params.a * pow_b + 1.0);
 
   for (var d = 0u; d < nc; d++) {
     let diff = embedding[i * nc + d] - embedding[j * nc + d];
@@ -82,31 +78,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   epoch_of_next_sample[edge_idx] += epochs_per_sample[edge_idx];
 
   // --- Repulsion (negative samples) ---
-  // Compute how many negative samples are overdue relative to current epoch,
-  // matching the Python reference: n_neg = floor((n - next_neg) / eps_per_neg).
-  let epoch_f      = f32(params.current_epoch);
-  let epochs_per_neg = epochs_per_sample[edge_idx] / f32(params.negative_sample_rate);
-  var n_neg = 0u;
-  if (epochs_per_neg > 0.0 && epoch_f >= epoch_of_next_negative_sample[edge_idx]) {
-    n_neg = u32((epoch_f - epoch_of_next_negative_sample[edge_idx]) / epochs_per_neg);
-    epoch_of_next_negative_sample[edge_idx] += f32(n_neg) * epochs_per_neg;
-  }
-
-  // 2654435761u is the 32-bit golden-ratio hash constant (0x9E3779B1),
-  // which fits in u32 unlike the 64-bit LCG value 6364136223 used originally.
-  // Bug 14 fix: the original constant exceeded u32 range and failed WGSL validation.
+  // A fixed number of negative samples per active edge, matching the reference
+  // (n_neg = negative_sample_rate for every edge processed this epoch).
+  // 2654435761u is the 32-bit golden-ratio hash constant (0x9E3779B1).
   var rng = xorshift(rng_seeds[edge_idx] + params.current_epoch * 2654435761u);
 
-  for (var s = 0u; s < n_neg; s++) {
+  for (var s = 0u; s < params.negative_sample_rate; s++) {
     rng = xorshift(rng);
     let k = rng % params.n_vertices;
-    if (k == i) { continue; }
 
     var neg_dist_sq : f32 = 0.0;
     for (var d = 0u; d < nc; d++) {
       let diff = embedding[i * nc + d] - embedding[k * nc + d];
       neg_dist_sq += diff * diff;
     }
+    neg_dist_sq = max(neg_dist_sq, 1e-6);
 
     let grad_coeff_rep = 2.0 * params.gamma * params.b
                          / ((0.001 + neg_dist_sq) * (params.a * pow(neg_dist_sq, params.b) + 1.0));

@@ -6,10 +6,14 @@
  * are compared using topology-based metrics that are invariant to rotation,
  * reflection, and translation.
  *
- * Exact numerical agreement is NOT expected: the CPU path uses float64
- * arithmetic with sequential per-edge updates while the GPU path uses
- * float32 arithmetic with parallel workgroup updates.  Instead the tests
- * assert *structural* equivalence:
+ * Both paths now run the *same* Jacobi-style update (gradients are accumulated
+ * from the current positions and applied once per epoch). Exact numerical
+ * agreement is still NOT expected: the CPU path uses float64 arithmetic while
+ * the GPU path uses float32, and the two draw *different* random negative-sample
+ * vertices (the CPU consumes the RNG stream directly; the GPU derives per-edge
+ * xorshift seeds from it). Both are seeded from the same fixed RNG so the
+ * comparison is deterministic run-to-run rather than flaky across the threshold.
+ * The tests assert *structural* equivalence:
  *
  *   1. Both embeddings separate the two clusters.
  *   2. The pairwise-distance rank order agrees (Spearman r > 0.8).
@@ -31,6 +35,7 @@ import { computeFuzzySimplicialSet } from '../fuzzy-set';
 import { computeEpochsPerSample } from '../umap';
 import { cpuSgd } from '../fallback/cpu-sgd';
 import { GPUSgd } from '../gpu/sgd';
+import { makeRng } from '../rng';
 
 // ─── WebGPU availability ──────────────────────────────────────────────────────
 
@@ -182,7 +187,7 @@ function knnRecall(
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const N_PER_CLUSTER = 12;
+const N_PER_CLUSTER = 24;
 const DIM = 6;
 const N_NEIGHBORS = 5;
 const N_EPOCHS = 500;
@@ -195,7 +200,7 @@ describe.skipIf(!webGPUAvailable)('WebGPU vs CPU structural equivalence', () => 
   let cpuEmbedding: Float32Array;
   let gpuEmbedding: Float32Array;
   let labels: number[];
-  const n = N_PER_CLUSTER * 2; // 24
+  const n = N_PER_CLUSTER * 2; // 48
 
   beforeAll(async () => {
     // Install navigator.gpu in this worker's context only — same pattern as
@@ -229,10 +234,19 @@ describe.skipIf(!webGPUAvailable)('WebGPU vs CPU structural equivalence', () => 
       sharedInitial[i * 2 + 1] = Math.cos(i * 1.3) * 0.5;
     }
 
+    // Seed both paths from the same fixed RNG so the comparison is
+    // deterministic run-to-run. The two paths still draw *different* random
+    // negative-sample vertices (the CPU draws directly from the stream while
+    // the GPU derives per-edge xorshift seeds), so this is not a numeric
+    // equality test — it keeps the structural metrics below reproducible
+    // instead of flaky across the 0.8 threshold.
+    const SEED = 99;
+
     // ── CPU path ─────────────────────────────────────────────────────────────
     // cpuSgd mutates the embedding in-place; give it its own copy.
     cpuEmbedding = sharedInitial.slice();
-    cpuSgd(cpuEmbedding, graph, epochsPerSample, n, 2, N_EPOCHS, UMAP_PARAMS);
+    cpuSgd(cpuEmbedding, graph, epochsPerSample, n, 2, N_EPOCHS, UMAP_PARAMS,
+      undefined, makeRng(SEED));
 
     // ── GPU path ─────────────────────────────────────────────────────────────
     // gpuSgd.optimize() returns a new Float32Array; pass a fresh copy of the
@@ -247,7 +261,9 @@ describe.skipIf(!webGPUAvailable)('WebGPU vs CPU structural equivalence', () => 
       n,
       2,       // nComponents
       N_EPOCHS,
-      UMAP_PARAMS
+      UMAP_PARAMS,
+      undefined,
+      makeRng(SEED)
     );
   });
 

@@ -98,12 +98,6 @@ export class GPUSgd {
     const epochNext = new Float32Array(epochsPerSample);
     const epochNextBuf = this.makeBuffer(epochNext, GPUBufferUsage.STORAGE);
 
-    const epochNextNeg = new Float32Array(nEdges);
-    for (let i = 0; i < nEdges; i++) {
-      epochNextNeg[i] = epochsPerSample[i] / params.negativeSampleRate;
-    }
-    const epochNextNegBuf = this.makeBuffer(epochNextNeg, GPUBufferUsage.STORAGE);
-
     const seeds = new Uint32Array(nEdges);
     for (let i = 0; i < nEdges; i++) {
       seeds[i] = (rng() * 0xffffffff) | 0;
@@ -146,10 +140,9 @@ export class GPUSgd {
         { binding: 2, resource: { buffer: tailBuf } },
         { binding: 3, resource: { buffer: embeddingBuf } },
         { binding: 4, resource: { buffer: epochNextBuf } },
-        { binding: 5, resource: { buffer: epochNextNegBuf } },
-        { binding: 6, resource: { buffer: sgdParamsBuf } },
-        { binding: 7, resource: { buffer: seedsBuf } },
-        { binding: 8, resource: { buffer: forcesBuf } },
+        { binding: 5, resource: { buffer: sgdParamsBuf } },
+        { binding: 6, resource: { buffer: seedsBuf } },
+        { binding: 7, resource: { buffer: forcesBuf } },
       ],
     });
 
@@ -234,7 +227,6 @@ export class GPUSgd {
     tailBuf.destroy();
     epsBuf.destroy();
     epochNextBuf.destroy();
-    epochNextNegBuf.destroy();
     seedsBuf.destroy();
     forcesBuf.destroy();
     sgdParamsBuf.destroy();
